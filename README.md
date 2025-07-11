@@ -1,1 +1,1 @@
-# aqi-predictor
+# AQI Predictor
