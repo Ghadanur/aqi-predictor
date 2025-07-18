@@ -1,0 +1,12 @@
+name: Fetch AQI Data
+on:
+  schedule:
+    - cron: "0 * * * *"  # Hourly
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: python src/features/fetch_data.py
+        env:
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
