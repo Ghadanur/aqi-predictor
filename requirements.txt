@@ -1,4 +1,4 @@
-hopsworks==3.0.5
+hopsworks==4.2.7 
 pandas==1.5.3
 numpy==1.23.5
 requests==2.28.1
