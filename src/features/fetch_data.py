@@ -79,24 +79,23 @@ def fetch_accuweather():
 def save_to_hopsworks(data):
     try:
         project = hopsworks.login(
-            api_key_value=os.getenv("HOPSWORKS_API_KEY"),
-            project="your_project_name"  # Add your exact project name
+        api_key_value=os.getenv("HOPSWORKS_API_KEY"),
+        project="your_project_name"  # Case-sensitive!
         )
         fs = project.get_feature_store()
         
+        # Prepare data (convert timestamp to string)
+        data["timestamp"] = data["timestamp"].isoformat()
+        df = pd.DataFrame([data])
+        
+        # Get or create feature group
         fg = fs.get_or_create_feature_group(
             name="aqi_weather_data",
             version=1,
             primary_key=["timestamp"],
-            description="Combined AQI and weather data"
+            description="AQI and weather data"
         )
-        
-        # Convert timestamp to string for Hopsworks compatibility
-        data["timestamp"] = data["timestamp"].isoformat()
-        df = pd.DataFrame([data])
-        
         fg.insert(df)
-        logger.info("Data saved successfully")
         
     except Exception as e:
         logger.error(f"Hopsworks Error: {str(e)}")
