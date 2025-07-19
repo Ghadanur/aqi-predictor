@@ -80,7 +80,7 @@ def save_to_hopsworks(data):
     try:
         project = hopsworks.login(
         api_key_value=os.getenv("HOPSWORKS_API_KEY"),
-        project="your_project_name"  # Case-sensitive!
+        project="aqi_predictr" 
         )
         fs = project.get_feature_store()
         
