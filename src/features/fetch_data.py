@@ -77,13 +77,11 @@ def fetch_accuweather():
         return None
 
 def save_to_hopsworks(data):
-    """Save data to Hopsworks feature store"""
     try:
-        API_KEY = os.getenv("HOPSWORKS_API_KEY")
-        if not API_KEY:
-            raise ValueError("HOPSWORKS_API_KEY environment variable not set")
-            
-        project = hopsworks.login(api_key_value=API_KEY)
+        project = hopsworks.login(
+            api_key_value=os.getenv("HOPSWORKS_API_KEY"),
+            project="your_project_name"  # Add your exact project name
+        )
         fs = project.get_feature_store()
         
         fg = fs.get_or_create_feature_group(
@@ -93,14 +91,17 @@ def save_to_hopsworks(data):
             description="Combined AQI and weather data"
         )
         
+        # Convert timestamp to string for Hopsworks compatibility
+        data["timestamp"] = data["timestamp"].isoformat()
         df = pd.DataFrame([data])
+        
         fg.insert(df)
-        logger.info(f"Successfully inserted {len(df)} records to Hopsworks")
+        logger.info("Data saved successfully")
         
     except Exception as e:
         logger.error(f"Hopsworks Error: {str(e)}")
         raise
-
+        
 if __name__ == "__main__":
     logger.info("Starting data fetch...")
     
