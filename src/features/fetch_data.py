@@ -79,14 +79,27 @@ def fetch_accuweather():
 def save_to_hopsworks(data):
     try:
         project = hopsworks.login(
-        api_key_value=os.getenv("HOPSWORKS_API_KEY"),
-        project="aqi_predictr" 
+            api_key_value=os.getenv("HOPSWORKS_API_KEY"),
+            project="aqi_predictr" 
         )
         fs = project.get_feature_store()
         
-        # Prepare data (convert timestamp to string)
+        # Convert and type-cast data
         data["timestamp"] = data["timestamp"].isoformat()
-        df = pd.DataFrame([data])
+        df = pd.DataFrame([data]).astype({
+            'aqi': 'float64',
+            'pm2_5': 'float64',
+            'pm10': 'float64',
+            'co': 'float64',  # Critical fix - ensures double type
+            'no2': 'float64',
+            'o3': 'float64',
+            'so2': 'float64',
+            'temperature': 'float64',
+            'humidity': 'float64',
+            'wind_speed': 'float64',
+            'pressure': 'float64',
+            'uv_index': 'float64'
+        })
         
         # Get or create feature group
         fg = fs.get_or_create_feature_group(
