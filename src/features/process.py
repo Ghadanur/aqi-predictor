@@ -78,7 +78,7 @@ class AQI3DayForecastProcessor:
         
         return df.dropna().sort_values('timestamp')
 
-   def _create_3day_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _create_3day_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Create features optimized for 72-hour forecasting"""
     # Convert timestamp to numerical features first
         df['hour_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.hour/24)
