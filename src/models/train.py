@@ -1,6 +1,6 @@
 # src/models/train.py
 from .explain import ForecastExplainer
-from src.process import AQI3DayForecastProcessor
+from src.features.process import AQI3DayForecastProcessor
 from sklearn.model_selection import TimeSeriesSplit
 
 def train_3day_forecaster():
