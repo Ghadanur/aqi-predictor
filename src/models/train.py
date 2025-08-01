@@ -12,6 +12,13 @@ def train_3day_forecaster():
     for train_idx, test_idx in tscv.split(features):
         X_train, X_test = features.iloc[train_idx], features.iloc[test_idx]
         y_train, y_test = targets.iloc[train_idx], targets.iloc[test_idx]
+def evaluate_3day_forecast(model, X_test, y_test):
+    horizons = ['24h', '48h', '72h']
+    preds = model.predict(X_test)
+    
+    for i, horizon in enumerate(horizons):
+        rmse = mean_squared_error(y_test.iloc[:, i+1], preds[:, i], squared=False)
+        print(f"RMSE for {horizon} forecast: {rmse:.2f}")
         
         # 3. Train model on 3 targets simultaneously
         model = RandomForestRegressor()
