@@ -79,29 +79,29 @@ class AQI3DayForecastProcessor:
         return df.dropna().sort_values('timestamp')
 
    def _create_3day_features(self, df: pd.DataFrame) -> pd.DataFrame:
-    """Create features optimized for 72-hour forecasting"""
+        """Create features optimized for 72-hour forecasting"""
     # Convert timestamp to numerical features first
-    df['hour_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.hour/24)
-    df['hour_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.hour/24)
-    df['day_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.dayofyear/365)
-    df['day_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.dayofyear/365)
+        df['hour_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.hour/24)
+        df['hour_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.hour/24)
+        df['day_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.dayofyear/365)
+        df['day_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.dayofyear/365)
     
     # Lag features (3 days = 72 hours)
-    for lag in [1, 6, 12, 24, 48, 72]:
-        df[f'aqi_lag_{lag}h'] = df['aqi'].shift(lag).astype('float32')
-        df[f'pm2_5_lag_{lag}h'] = df['pm2_5'].shift(lag).astype('float32')
+        for lag in [1, 6, 12, 24, 48, 72]:
+            df[f'aqi_lag_{lag}h'] = df['aqi'].shift(lag).astype('float32')
+            df[f'pm2_5_lag_{lag}h'] = df['pm2_5'].shift(lag).astype('float32')
     
     # Rolling statistics
-    df['aqi_72h_avg'] = df['aqi'].rolling(72).mean().astype('float32')
-    df['pm2_5_72h_max'] = df['pm2_5'].rolling(72).max().astype('float32')
+         df['aqi_72h_avg'] = df['aqi'].rolling(72).mean().astype('float32')
+         df['pm2_5_72h_max'] = df['pm2_5'].rolling(72).max().astype('float32')
     
     # Weather trends
-    df['temp_24h_change'] = df['temperature'].diff(24).astype('float32')
-    df['humidity_24h_change'] = df['humidity'].diff(24).astype('float32')
+         df['temp_24h_change'] = df['temperature'].diff(24).astype('float32')
+         df['humidity_24h_change'] = df['humidity'].diff(24).astype('float32')
     
     # Drop original timestamp and ensure float dtypes
-    df = df.drop('timestamp', axis=1)
-    return df.astype('float32').dropna()
+         df = df.drop('timestamp', axis=1)
+         return df.astype('float32').dropna()
 
     def _create_3day_targets(self, df: pd.DataFrame) -> pd.DataFrame:
         """Create multi-horizon targets up to 72 hours"""
