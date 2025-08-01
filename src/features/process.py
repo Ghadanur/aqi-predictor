@@ -98,7 +98,7 @@ class AQI3DayForecastProcessor:
                 df[f'pm10_lag_{lag}h'] = df['pm10'].shift(lag).astype('float32')   
     # Rolling statistics
         # 4. Simplified CO features (low importance)
-        df['co_24h_avg'] = df['co'].rolling(24).mean().astype('float32'
+        df['co_24h_avg'] = df['co'].rolling(24).mean().astype('float32')
         df['aqi_72h_avg'] = df['aqi'].rolling(72).mean().astype('float32')
         df['pm2_5_72h_max'] = df['pm2_5'].rolling(72).max().astype('float32')
     
