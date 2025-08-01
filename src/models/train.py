@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import sys
+import traceback
 import os
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
@@ -140,13 +142,18 @@ def train_3day_forecaster():
         raise
 
 if __name__ == "__main__":
-    print("Starting AQI 3-day forecast model training...")
-    trained_model = train_3day_forecaster()
-    
-    # List all generated files
-    print("\nGenerated files in data directory:")
-    for f in sorted(os.listdir(DATA_DIR)):
-        if f.startswith(('3day_forecaster', 'shap_', 'validation_')):
-            print(f"- {f}")
-    
-    print("\nModel training and validation completed successfully")
+    try:
+        print("Starting AQI 3-day forecast model training...")
+        trained_model = train_3day_forecaster()
+        
+        # List all generated files
+        print("\nGenerated files in data directory:")
+        for f in sorted(os.listdir(DATA_DIR)):
+            if f.startswith(('3day_forecaster', 'shap_', 'validation_')):
+                print(f"- {f}")
+        
+        print("\nModel training and validation completed successfully")
+    except Exception as e:
+        print(f"\nCRITICAL ERROR: {str(e)}")
+        print("Traceback:", traceback.format_exc())
+        sys.exit(1)
