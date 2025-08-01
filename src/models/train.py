@@ -32,7 +32,8 @@ def train_3day_forecaster():
     preds = model.predict(X_test)
     
     for i, horizon in enumerate(horizons):
-        rmse = mean_squared_error(y_test.iloc[:, i], preds[:, i], squared=False)
+        rmse =np.sqrt(mean_squared_error(y_test.iloc[:, i], preds[:, i]))
+
         print(f"RMSE for {horizon} forecast: {rmse:.2f}")
         
         explainer.visualize_horizon(
