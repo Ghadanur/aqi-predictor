@@ -39,6 +39,8 @@ jobs:
         run: |
           python -m src.models.train
           echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
+        env:
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}   
 
       - name: Verify artifacts
         run: |
