@@ -81,8 +81,7 @@ def train_3day_forecaster():
         for i, horizon in enumerate(horizons):
             try:
                 # Get valid indices (non-NaN and aligned)
-                valid_mask = (~np.isnan(y_test.iloc[:, i+1]) & 
-                            (y_test.index.isin(X_test.index))
+                valid_mask = (~np.isnan(y_test.iloc[:, i+1]) & (y_test.index.isin(X_test.index))
                 
                 # Get aligned data
                 y_true = y_test.loc[valid_mask, y_test.columns[i+1]]
