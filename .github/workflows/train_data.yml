@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 30
     env:
       TZ: Asia/Karachi
-      PYTHONPATH: ${{ github.workspace }}/src  # Directly point to src
+      PYTHONPATH: ${{ github.workspace }}  # Critical for module imports
 
     steps:
       - uses: actions/checkout@v4
@@ -23,21 +23,21 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
+          pip install -e .  # Install your package in editable mode
           pip install -r requirements.txt shap matplotlib
 
       - name: Process data
         run: |
-          cd src  # Work from src directory
-          python -m process --lookback_days 90
-          echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" > timing.log
+          python -m src.process --lookback_days 90
+          echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+          PYTHONUNBUFFERED: 1  # Real-time logging
 
       - name: Train model
         run: |
-          cd src/models
-          python -m train
-          echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> ../timing.log
+          python -m src.models.train
+          echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -46,4 +46,4 @@ jobs:
           path: |
             src/models/*.pkl
             src/models/shap_*.png
-            src/timing.log
+            *.log
