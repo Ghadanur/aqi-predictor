@@ -68,3 +68,9 @@ class ForecastExplainer:
             plt.close()
         else:
             plt.show()
+    def plot_dependence(self, X: pd.DataFrame, horizon: str, feature: str):
+        horizon_idx = {'24h': 0, '48h': 1, '72h': 2}[horizon]
+        shap_values = self.explainer.shap_values(X)[horizon_idx]
+        shap.dependence_plot(feature, shap_values, X, show=False)
+        plt.title(f'{feature} impact on {horizon} forecast')
+        plt.show()
