@@ -33,8 +33,11 @@ def train_3day_forecaster():
     preds = model.predict(X_test)
     
     for i, horizon in enumerate(horizons):
-        rmse =np.sqrt(mean_squared_error(y_test.iloc[:, i], preds[:, i]))
-
+        # Ensure we only compare non-NaN values
+        valid_idx = ~np.isnan(y_test.iloc[:, i])
+        y_true = y_test.iloc[:, i][valid_idx]
+        y_pred = preds[valid_idx, i-1] if preds.ndim > 1 else preds[valid_idx]
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
         print(f"RMSE for {horizon} forecast: {rmse:.2f}")
         
         explainer.visualize_horizon(
