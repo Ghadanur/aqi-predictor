@@ -85,13 +85,20 @@ class AQI3DayForecastProcessor:
         df['hour_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.hour/24)
         df['day_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.dayofyear/365)
         df['day_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.dayofyear/365)
-    
+
+        # 2. Enhanced PM features (high importance)
+        df['pm_ratio'] = (df['pm2_5'] / df['pm10']).astype('float32')  # Composition ratio
+        df['pm_interaction'] = (df['pm2_5'] * df['pm10']).astype('float32')  # Interaction term
+        df['pm2_5_change_24h'] = df['pm2_5'].diff(24).astype('float32')  # Daily delta    
     # Lag features (3 days = 72 hours)
         for lag in [1, 6, 12, 24, 48, 72]:
             df[f'aqi_lag_{lag}h'] = df['aqi'].shift(lag).astype('float32')
             df[f'pm2_5_lag_{lag}h'] = df['pm2_5'].shift(lag).astype('float32')
-    
+            if lag % 24 == 0:  # Only daily lags for PM10
+                df[f'pm10_lag_{lag}h'] = df['pm10'].shift(lag).astype('float32')   
     # Rolling statistics
+        # 4. Simplified CO features (low importance)
+        df['co_24h_avg'] = df['co'].rolling(24).mean().astype('float32'
         df['aqi_72h_avg'] = df['aqi'].rolling(72).mean().astype('float32')
         df['pm2_5_72h_max'] = df['pm2_5'].rolling(72).max().astype('float32')
     
