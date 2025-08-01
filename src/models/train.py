@@ -21,7 +21,9 @@ def plot_predictions(y_true, y_pred, horizon, save_path=None):
     plt.legend()
     if save_path:
         os.makedirs(save_path, exist_ok=True)
-        plt.savefig(f'{save_path}/validation_plot_{horizon}.png', bbox_inches='tight')
+        output_path = os.path.join(save_path, f'validation_plot_{horizon}.png')
+        plt.savefig(output_path, bbox_inches='tight', dpi=300)
+        print(f"Saved validation plot to: {output_path}")
     plt.close()
 
 def evaluate_forecast(y_true, y_pred, horizon):
@@ -33,7 +35,8 @@ def evaluate_forecast(y_true, y_pred, horizon):
         'R2': r2_score(y_true, y_pred),
         'mean_error': np.mean(y_pred - y_true),
         'std_error': np.std(y_pred - y_true),
-        'max_error': np.max(np.abs(y_pred - y_true))
+        'max_error': np.max(np.abs(y_pred - y_true)),
+        'samples': len(y_true)
     }
     return metrics
 
@@ -41,6 +44,7 @@ def train_3day_forecaster():
     try:
         # 1. Get processed data
         processor = AQI3DayForecastProcessor()
+        print("Fetching and processing data...")
         features, targets = processor.get_3day_forecast_data(lookback_days=120)
         
         # 2. Reset indices to ensure alignment
@@ -55,8 +59,11 @@ def train_3day_forecaster():
         # 4. Verify alignment
         assert X_train.index.equals(y_train.index), "Train index mismatch"
         assert X_test.index.equals(y_test.index), "Test index mismatch"
+        print(f"Train shapes: X={X_train.shape}, y={y_train.shape}")
+        print(f"Test shapes: X={X_test.shape}, y={y_test.shape}")
         
         # 5. Train model with optimized parameters
+        print("Training Random Forest model...")
         model = RandomForestRegressor(
             n_estimators=300,
             max_depth=15,
@@ -69,9 +76,12 @@ def train_3day_forecaster():
         # 6. Save model artifacts
         model_dir = 'src/models/'
         os.makedirs(model_dir, exist_ok=True)
-        joblib.dump(model, f'{model_dir}3day_forecaster.pkl')
+        model_path = os.path.join(model_dir, '3day_forecaster.pkl')
+        joblib.dump(model, model_path)
+        print(f"Saved model to: {model_path}")
         
         # 7. Generate predictions
+        print("Generating predictions...")
         preds = model.predict(X_test)
         
         # 8. Comprehensive validation
@@ -80,6 +90,7 @@ def train_3day_forecaster():
         
         for i, horizon in enumerate(horizons):
             try:
+                print(f"\nEvaluating {horizon} forecast...")
                 # Get valid indices (non-NaN and aligned)
                 valid_mask = (~np.isnan(y_test.iloc[:, i+1])) & (y_test.index.isin(X_test.index))
                 
@@ -95,37 +106,48 @@ def train_3day_forecaster():
                 # Evaluate
                 metrics = evaluate_forecast(y_true, y_pred, horizon)
                 validation_results.append(metrics)
+                print(f"{horizon} metrics:", {k: round(v, 3) if isinstance(v, float) else v 
+                                           for k, v in metrics.items()})
                 
                 # Visual validation
                 plot_predictions(y_true, y_pred, horizon, model_dir)
                 
                 # Generate SHAP explanations
-                explainer = ForecastExplainer(f'{model_dir}3day_forecaster.pkl')
+                print("Generating SHAP explanation...")
+                explainer = ForecastExplainer(model_path)
                 explainer.prepare_shap(X_train)
-                explainer.visualize_horizon(
-                    X_test.loc[valid_mask], 
-                    horizon, 
-                    model_dir
-                )
+                shap_path = os.path.join(model_dir, f'shap_{horizon}.png')
+                explainer.visualize_horizon(X_test.loc[valid_mask], horizon, model_dir)
+                print(f"Saved SHAP plot to: {shap_path}")
                 
             except Exception as e:
                 print(f"Error evaluating {horizon} forecast: {str(e)}")
                 continue
         
         # 9. Save validation report
-        pd.DataFrame(validation_results).to_csv(f'{model_dir}validation_report.csv')
+        report_path = os.path.join(model_dir, 'validation_report.csv')
+        pd.DataFrame(validation_results).to_csv(report_path, index=False)
+        print(f"\nSaved validation report to: {report_path}")
         
-        # 10. Alert if critical errors found
+        # 10. Final checks
         max_errors = [res['max_error'] for res in validation_results if res is not None]
         if max_errors and any(error > 50 for error in max_errors):
-            print("ALERT: Some predictions >50 AQI points from actual values")
+            print("\nALERT: Some predictions >50 AQI points from actual values")
         
         return model
 
     except Exception as e:
-        print(f"Training failed: {str(e)}")
+        print(f"\nTraining failed: {str(e)}")
         raise
 
 if __name__ == "__main__":
+    print("Starting AQI 3-day forecast model training...")
     trained_model = train_3day_forecaster()
-    print("Model training and validation completed successfully")
+    
+    # List all generated files
+    model_dir = 'src/models/'
+    print("\nGenerated files in models directory:")
+    for f in sorted(os.listdir(model_dir)):
+        print(f"- {f}")
+    
+    print("\nModel training and validation completed successfully")
