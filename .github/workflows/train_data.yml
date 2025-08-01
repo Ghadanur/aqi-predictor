@@ -10,6 +10,7 @@ jobs:
     timeout-minutes: 30
     env:
       TZ: Asia/Karachi
+      PYTHONPATH: ${{ github.workspace }}  # Critical for module imports
 
     steps:
       - uses: actions/checkout@v4
@@ -22,8 +23,8 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt shap
-          echo "$(date +'%Y-%m-%d %H:%M:%S %Z')" >> run.log
+          pip install -e .  # Install your package in editable mode
+          pip install -r requirements.txt shap matplotlib
 
       - name: Process data
         run: |
@@ -31,13 +32,12 @@ jobs:
           echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-          PYTHONUNBUFFERED: 1
+          PYTHONUNBUFFERED: 1  # Real-time logging
 
       - name: Train model
         run: |
           python -m src.models.train
           echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
-        if: always()
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -47,12 +47,3 @@ jobs:
             src/models/*.pkl
             src/models/shap_*.png
             *.log
-        if: success() || failure()
-
-      - name: Slack notification
-        if: failure()
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          slack-message: 'Workflow ${{ github.workflow }} failed! (<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>)'
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
