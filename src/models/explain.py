@@ -1,3 +1,4 @@
+import pandas as pd
 def visualize_horizon(self, X: pd.DataFrame, horizon: str, save_path: str = None):
     """Generate SHAP visualization with dimension checks"""
     if not self.explainer:
