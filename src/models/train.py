@@ -1,4 +1,5 @@
 # src/models/train.py
+from .explain import ForecastExplainer
 from src.process import AQI3DayForecastProcessor
 from sklearn.model_selection import TimeSeriesSplit
 
@@ -23,6 +24,24 @@ def evaluate_3day_forecast(model, X_test, y_test):
         # 3. Train model on 3 targets simultaneously
         model = RandomForestRegressor()
         model.fit(X_train, y_train)
+
+        explainer = ForecastExplainer('models/3day_forecaster.pkl')
+        explainer.prepare_shap(X_train)
+    
+    # Analyze each horizon
+        horizons = ['24h', '48h', '72h']
+        for horizon in horizons:
+            importance = explainer.analyze_horizon(X_test, horizon)
+            print(f"\n🔍 Top features for {horizon} forecast:")
+            for feat, score in list(importance.items())[:5]:
+                print(f"{feat}: {score:.4f}")
+        
+        # Save visualizations
+        explainer.visualize_horizon(
+            X_test, 
+            horizon,
+            save_path='reports/figures/'
+        )
         
         # 4. Evaluate on 24h/48h/72h horizons
         evaluate_3day_forecast(model, X_test, y_test)
