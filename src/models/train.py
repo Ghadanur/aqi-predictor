@@ -10,6 +10,11 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from .explain import ForecastExplainer
 from src.features.process import AQI3DayForecastProcessor
 
+# Define the output directory relative to repository root
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+DATA_DIR = os.path.join(REPO_ROOT, 'data')
+os.makedirs(DATA_DIR, exist_ok=True)
+
 def plot_predictions(y_true, y_pred, horizon, save_path=None):
     """Visual comparison of predictions vs actuals"""
     plt.figure(figsize=(12, 6))
@@ -20,7 +25,6 @@ def plot_predictions(y_true, y_pred, horizon, save_path=None):
     plt.ylabel('AQI Value')
     plt.legend()
     if save_path:
-        os.makedirs(save_path, exist_ok=True)
         output_path = os.path.join(save_path, f'validation_plot_{horizon}.png')
         plt.savefig(output_path, bbox_inches='tight', dpi=300)
         print(f"Saved validation plot to: {output_path}")
@@ -59,8 +63,6 @@ def train_3day_forecaster():
         # 4. Verify alignment
         assert X_train.index.equals(y_train.index), "Train index mismatch"
         assert X_test.index.equals(y_test.index), "Test index mismatch"
-        print(f"Train shapes: X={X_train.shape}, y={y_train.shape}")
-        print(f"Test shapes: X={X_test.shape}, y={y_test.shape}")
         
         # 5. Train model with optimized parameters
         print("Training Random Forest model...")
@@ -73,10 +75,8 @@ def train_3day_forecaster():
         )
         model.fit(X_train, y_train)
         
-        # 6. Save model artifacts
-        model_dir = 'src/models/'
-        os.makedirs(model_dir, exist_ok=True)
-        model_path = os.path.join(model_dir, '3day_forecaster.pkl')
+        # 6. Save model artifacts to data folder
+        model_path = os.path.join(DATA_DIR, '3day_forecaster.pkl')
         joblib.dump(model, model_path)
         print(f"Saved model to: {model_path}")
         
@@ -96,7 +96,7 @@ def train_3day_forecaster():
                 
                 # Get aligned data
                 y_true = y_test.loc[valid_mask, y_test.columns[i+1]]
-                y_pred = preds[valid_mask, i] if preds.ndim > 1 else preds[valid_mask]
+                y_pred = preds[valid_mask, i]
                 
                 # Verify we have data to evaluate
                 if len(y_true) == 0:
@@ -110,22 +110,21 @@ def train_3day_forecaster():
                                            for k, v in metrics.items()})
                 
                 # Visual validation
-                plot_predictions(y_true, y_pred, horizon, model_dir)
+                plot_predictions(y_true, y_pred, horizon, DATA_DIR)
                 
                 # Generate SHAP explanations
                 print("Generating SHAP explanation...")
                 explainer = ForecastExplainer(model_path)
                 explainer.prepare_shap(X_train)
-                shap_path = os.path.join(model_dir, f'shap_{horizon}.png')
-                explainer.visualize_horizon(X_test.loc[valid_mask], horizon, model_dir)
-                print(f"Saved SHAP plot to: {shap_path}")
+                explainer.visualize_horizon(X_test.loc[valid_mask], horizon, DATA_DIR)
+                print(f"Saved SHAP plot to: {os.path.join(DATA_DIR, f'shap_{horizon}.png')}")
                 
             except Exception as e:
                 print(f"Error evaluating {horizon} forecast: {str(e)}")
                 continue
         
-        # 9. Save validation report
-        report_path = os.path.join(model_dir, 'validation_report.csv')
+        # 9. Save validation report to data folder
+        report_path = os.path.join(DATA_DIR, 'validation_report.csv')
         pd.DataFrame(validation_results).to_csv(report_path, index=False)
         print(f"\nSaved validation report to: {report_path}")
         
@@ -145,9 +144,9 @@ if __name__ == "__main__":
     trained_model = train_3day_forecaster()
     
     # List all generated files
-    model_dir = 'src/models/'
-    print("\nGenerated files in models directory:")
-    for f in sorted(os.listdir(model_dir)):
-        print(f"- {f}")
+    print("\nGenerated files in data directory:")
+    for f in sorted(os.listdir(DATA_DIR)):
+        if f.startswith(('3day_forecaster', 'shap_', 'validation_')):
+            print(f"- {f}")
     
     print("\nModel training and validation completed successfully")
