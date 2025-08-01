@@ -28,7 +28,7 @@ jobs:
 
       - name: Process data
         run: |
-          python -m src.process --lookback_days 90
+          python -m src.features.process --lookback_days 90
           echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
