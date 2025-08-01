@@ -1,6 +1,7 @@
 # src/models/train.py
 import joblib
 import pandas as pd
+import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
 from .explain import ForecastExplainer
