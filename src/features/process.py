@@ -92,16 +92,16 @@ class AQI3DayForecastProcessor:
             df[f'pm2_5_lag_{lag}h'] = df['pm2_5'].shift(lag).astype('float32')
     
     # Rolling statistics
-         df['aqi_72h_avg'] = df['aqi'].rolling(72).mean().astype('float32')
-         df['pm2_5_72h_max'] = df['pm2_5'].rolling(72).max().astype('float32')
+        df['aqi_72h_avg'] = df['aqi'].rolling(72).mean().astype('float32')
+        df['pm2_5_72h_max'] = df['pm2_5'].rolling(72).max().astype('float32')
     
     # Weather trends
-         df['temp_24h_change'] = df['temperature'].diff(24).astype('float32')
-         df['humidity_24h_change'] = df['humidity'].diff(24).astype('float32')
+        df['temp_24h_change'] = df['temperature'].diff(24).astype('float32')
+        df['humidity_24h_change'] = df['humidity'].diff(24).astype('float32')
     
     # Drop original timestamp and ensure float dtypes
-         df = df.drop('timestamp', axis=1)
-         return df.astype('float32').dropna()
+        df = df.drop('timestamp', axis=1)
+        return df.astype('float32').dropna()
 
     def _create_3day_targets(self, df: pd.DataFrame) -> pd.DataFrame:
         """Create multi-horizon targets up to 72 hours"""
