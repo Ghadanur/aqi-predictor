@@ -84,7 +84,7 @@ def train_3day_forecaster():
         model.fit(X_train, y_train)
         
         # 6. Save model artifacts to data folder
-        model_path = os.path.join(DATA_DIR, '3day_forecaster.pkl')
+        model_path = os.path.join(MODEL_DIR, '3day_forecaster.pkl')
         joblib.dump(model, model_path)
         print(f"Saved model to: {model_path}")
         
@@ -118,21 +118,21 @@ def train_3day_forecaster():
                                            for k, v in metrics.items()})
                 
                 # Visual validation
-                plot_predictions(y_true, y_pred, horizon, DATA_DIR)
+                plot_predictions(y_true, y_pred, horizon, MODEL_DIR)
                 
                 # Generate SHAP explanations
                 print("Generating SHAP explanation...")
                 explainer = ForecastExplainer(model_path)
                 explainer.prepare_shap(X_train)
-                explainer.visualize_horizon(X_test.loc[valid_mask], horizon, DATA_DIR)
-                print(f"Saved SHAP plot to: {os.path.join(DATA_DIR, f'shap_{horizon}.png')}")
+                explainer.visualize_horizon(X_test.loc[valid_mask], horizon, MODEL_DIR)
+                print(f"Saved SHAP plot to: {os.path.join(MODEL_DIR, f'shap_{horizon}.png')}")
                 
             except Exception as e:
                 print(f"Error evaluating {horizon} forecast: {str(e)}")
                 continue
         
         # 9. Save validation report to data folder
-        report_path = os.path.join(DATA_DIR, 'validation_report.csv')
+        report_path = os.path.join(MODEL_DIR, 'validation_report.csv')
         pd.DataFrame(validation_results).to_csv(report_path, index=False)
         print(f"\nSaved validation report to: {report_path}")
         
@@ -154,7 +154,7 @@ if __name__ == "__main__":
         
         # List all generated files
         print("\nGenerated files in data directory:")
-        for f in sorted(os.listdir(DATA_DIR)):
+        for f in sorted(os.listdir(MODEL_DIR)):
             if f.startswith(('3day_forecaster', 'shap_', 'validation_')):
                 print(f"- {f}")
         
@@ -163,6 +163,7 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
 
