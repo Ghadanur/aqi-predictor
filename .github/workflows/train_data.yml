@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 30
     env:
       TZ: Asia/Karachi
-      PYTHONPATH: ${{ github.workspace }}//src
+      PYTHONPATH: ${{ github.workspace }}
 
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +25,8 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt shap matplotlib
           
-      - name: Create data directory
-        run: mkdir -p src/data
+      - name: Create model directory
+        run: mkdir -p src/models
 
       - name: Process data
         run: |
