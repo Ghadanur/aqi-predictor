@@ -19,8 +19,8 @@ except ImportError:
 
 # Define the output directory relative to repository root
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
-DATA_DIR = os.path.join(REPO_ROOT, 'data')
-os.makedirs(DATA_DIR, exist_ok=True)
+MODEL_DIR = Path(__file__).parent  # Saves to same directory as train.py
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 def plot_predictions(y_true, y_pred, horizon, save_path=None):
     """Visual comparison of predictions vs actuals"""
@@ -162,4 +162,5 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
