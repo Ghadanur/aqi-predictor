@@ -9,8 +9,13 @@ import traceback
 import os
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from .explain import ForecastExplainer
-from src.features.process import AQI3DayForecastProcessor
+try:
+    from src.models.explain import ForecastExplainer
+    from src.features.process import AQI3DayForecastProcessor
+except ImportError:
+    # Fallback for direct execution
+    from explain import ForecastExplainer
+    from features.process import AQI3DayForecastProcessor
 
 # Define the output directory relative to repository root
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
@@ -157,3 +162,4 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
