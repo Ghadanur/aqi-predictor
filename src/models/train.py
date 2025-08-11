@@ -112,8 +112,8 @@ def train_3day_forecaster():
                 valid_mask = (~np.isnan(y_test.iloc[:, i+1])) & (y_test.index.isin(X_test.index))
                 
                 # Get aligned data
-                y_true = y_test.loc[valid_mask, y_test.columns[i]]
-                y_pred = preds[valid_mask, i]
+                target_columns = ['AQI_24h', 'AQI_48h', 'AQI_72h']
+                y_true = y_test.loc[valid_mask, target_columns[i]]
                 
                 # Verify we have data to evaluate
                 if len(y_true) == 0:
@@ -176,6 +176,7 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
 
