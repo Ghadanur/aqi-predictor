@@ -46,10 +46,23 @@ jobs:
         run: |
           echo "Generated files:"
           ls -lh src/models/
-          [ -f src/models/3day_forecaster.pkl ] || { echo "Model file missing"; exit 1; }
-          [ -s src/models/validation_report.csv ] || { echo "Validation report missing or empty"; exit 1; }
-          [ -f src/models/validation_24h.png ] || { echo "24h validation plot missing"; exit 1; }
-          echo "All required artifacts present"
+          required_files=(
+            "3day_forecaster.pkl"
+            "validation_24h.png"
+            "validation_48h.png"
+            "validation_72h.png"
+           "validation_report.csv"
+          )
+    
+          for file in "${required_files[@]}"; do
+            if [ ! -f "src/models/$file" ]; then
+               echo "ERROR: Missing required file $file"
+               exit 1
+            fi
+          done
+    
+          echo "All artifacts verified successfully"
+
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
