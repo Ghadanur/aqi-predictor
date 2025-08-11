@@ -85,7 +85,7 @@ def train_3day_forecaster():
         print("Training Random Forest model...")
         model = RandomForestRegressor(
             n_estimators=400,
-            max_depth=16,
+            max_depth=20,
             min_samples_split=5,
             random_state=42,
             n_jobs=-1
@@ -176,6 +176,7 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
 
