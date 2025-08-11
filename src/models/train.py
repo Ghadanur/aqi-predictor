@@ -109,11 +109,12 @@ def train_3day_forecaster():
             try:
                 print(f"\nEvaluating {horizon} forecast...")
                 # Get valid indices (non-NaN and aligned)
-                valid_mask = (~np.isnan(y_test.iloc[:, i+1])) & (y_test.index.isin(X_test.index))
+                valid_mask = (~y_test.isna().any(axis=1)) & (y_test.index.isin(X_test.index))
                 
                 # Get aligned data
-                target_columns = ['AQI_24h', 'AQI_48h', 'AQI_72h']
-                y_true = y_test.loc[valid_mask, target_columns[i]]
+                for i, horizon in enumerate(['24h', '48h', '72h']):
+                    y_true = y_test.loc[valid_mask].iloc[:, i]  # Explicit column selection
+                    y_pred = preds[valid_mask, i]
                 
                 # Verify we have data to evaluate
                 if len(y_true) == 0:
@@ -176,6 +177,7 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
 
