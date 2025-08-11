@@ -118,26 +118,26 @@ def train_3day_forecaster():
             print(f"Evaluating {len(y_true)} samples")
                 
                 # Evaluate
-                metrics = evaluate_forecast(y_true, y_pred, horizon)
-                validation_results.append(metrics)
-                print(f"\n{horizon} Forecast Performance:")
-                print(f"- Accuracy: {metrics['Accuracy (%)']:.2f}%")
-                print(f"- RMSE: {metrics['RMSE']:.2f}")
-                print(f"- MAE: {metrics['MAE']:.2f}")
-                print(f"- R²: {metrics['R2']:.2f}")
-                print(f"- Samples: {metrics['samples']}")
+            metrics = evaluate_forecast(y_true, y_pred, horizon)
+            validation_results.append(metrics)
+            print(f"\n{horizon} Forecast Performance:")
+            print(f"- Accuracy: {metrics['Accuracy (%)']:.2f}%")
+            print(f"- RMSE: {metrics['RMSE']:.2f}")
+            print(f"- MAE: {metrics['MAE']:.2f}")
+            print(f"- R²: {metrics['R2']:.2f}")
+            print(f"- Samples: {metrics['samples']}")
                 
                 # Visual validation
-                plot_predictions(y_true, y_pred, horizon, MODEL_DIR)
+            plot_predictions(y_true, y_pred, horizon, MODEL_DIR)
                 
                 # Generate SHAP explanations
-                print("Generating SHAP explanation...")
-                explainer = ForecastExplainer(model_path)
-                explainer.prepare_shap(X_train)
-                explainer.visualize_horizon(X_test.loc[valid_mask], horizon, MODEL_DIR)
-                print(f"Saved SHAP plot to: {os.path.join(MODEL_DIR, f'shap_{horizon}.png')}")
+            print("Generating SHAP explanation...")
+            explainer = ForecastExplainer(model_path)
+            explainer.prepare_shap(X_train)
+            explainer.visualize_horizon(X_test.loc[valid_mask], horizon, MODEL_DIR)
+            print(f"Saved SHAP plot to: {os.path.join(MODEL_DIR, f'shap_{horizon}.png')}")
                 
-            except Exception as e:
+        except Exception as e:
                 print(f"Error evaluating {horizon} forecast: {str(e)}")
                 continue
         
@@ -173,3 +173,4 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
