@@ -82,11 +82,11 @@ def train_3day_forecaster():
         assert X_test.index.equals(y_test.index), "Test index mismatch"
         
         # 5. Train model with optimized parameters
-        print("Training Random Forest model...")
-        model = RandomForestRegressor(
-            n_estimators=500,
-            max_depth=20,
-            min_samples_split=5,
+        print("Training ExtraTreesRegressor model...")
+        model = ExtraTreesRegressor(
+            n_estimators=200,
+            max_features='sqrt',
+            min_samples_leaf=5,
             random_state=42,
             n_jobs=-1
         )
@@ -176,6 +176,7 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
 
