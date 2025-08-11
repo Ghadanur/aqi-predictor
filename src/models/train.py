@@ -39,7 +39,8 @@ def plot_predictions(y_true, y_pred, horizon, save_path=None):
     plt.close()
 
 def evaluate_forecast(y_true, y_pred, horizon):
-    """Comprehensive forecast evaluation"""# Calculate basic metrics
+    """Comprehensive forecast evaluation"""
+    # Calculate basic metrics
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     mae = mean_absolute_error(y_true, y_pred)
     r2 = r2_score(y_true, y_pred)
@@ -106,39 +107,40 @@ def train_3day_forecaster():
         horizon_map = {'24h': 0, '48h': 1, '72h': 2}  # Explicit mapping
 
         for horizon_name, horizon_idx in horizon_map.items():
-            print(f"\nEvaluating {horizon_name} forecast...")
+            try:
+                print(f"\nEvaluating {horizon_name} forecast...")
     
-    # Get aligned non-nan samples
-            valid_mask = (~targets.iloc[:, horizon_idx].isna()) & (targets.index.isin(X_test.index))
-            y_true = targets.loc[valid_mask, targets.columns[horizon_idx]]
-            y_pred = preds[valid_mask, horizon_idx]
+                # Get aligned non-nan samples
+                valid_mask = (~targets.iloc[:, horizon_idx].isna()) & (targets.index.isin(X_test.index))
+                y_true = targets.loc[valid_mask, targets.columns[horizon_idx]]
+                y_pred = preds[valid_mask, horizon_idx]
     
-    # Verify alignment
-            assert len(y_true) == len(y_pred), "Alignment failed"
-            print(f"Evaluating {len(y_true)} samples")
+                # Verify alignment
+                assert len(y_true) == len(y_pred), "Alignment failed"
+                print(f"Evaluating {len(y_true)} samples")
                 
                 # Evaluate
-            metrics = evaluate_forecast(y_true, y_pred, horizon)
-            validation_results.append(metrics)
-            print(f"\n{horizon} Forecast Performance:")
-            print(f"- Accuracy: {metrics['Accuracy (%)']:.2f}%")
-            print(f"- RMSE: {metrics['RMSE']:.2f}")
-            print(f"- MAE: {metrics['MAE']:.2f}")
-            print(f"- R²: {metrics['R2']:.2f}")
-            print(f"- Samples: {metrics['samples']}")
+                metrics = evaluate_forecast(y_true, y_pred, horizon_name)
+                validation_results.append(metrics)
+                print(f"\n{horizon_name} Forecast Performance:")
+                print(f"- Accuracy: {metrics['Accuracy (%)']:.2f}%")
+                print(f"- RMSE: {metrics['RMSE']:.2f}")
+                print(f"- MAE: {metrics['MAE']:.2f}")
+                print(f"- R²: {metrics['R2']:.2f}")
+                print(f"- Samples: {metrics['samples']}")
                 
                 # Visual validation
-            plot_predictions(y_true, y_pred, horizon, MODEL_DIR)
+                plot_predictions(y_true, y_pred, horizon_name, MODEL_DIR)
                 
                 # Generate SHAP explanations
-            print("Generating SHAP explanation...")
-            explainer = ForecastExplainer(model_path)
-            explainer.prepare_shap(X_train)
-            explainer.visualize_horizon(X_test.loc[valid_mask], horizon, MODEL_DIR)
-            print(f"Saved SHAP plot to: {os.path.join(MODEL_DIR, f'shap_{horizon}.png')}")
+                print("Generating SHAP explanation...")
+                explainer = ForecastExplainer(model_path)
+                explainer.prepare_shap(X_train)
+                explainer.visualize_horizon(X_test.loc[valid_mask], horizon_name, MODEL_DIR)
+                print(f"Saved SHAP plot to: {os.path.join(MODEL_DIR, f'shap_{horizon_name}.png')}")
                 
             except Exception as e:
-                print(f"Error evaluating {horizon} forecast: {str(e)}")
+                print(f"Error evaluating {horizon_name} forecast: {str(e)}")
                 continue
         
         # 9. Save validation report to data folder
@@ -173,5 +175,3 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
-
-
