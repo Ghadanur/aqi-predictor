@@ -28,7 +28,7 @@ def plot_predictions(y_true, y_pred, horizon, save_path=None):
     plt.ylabel('AQI Value')
     plt.legend()
     if save_path:
-        output_path = os.path.join(save_path, f'validation_plot_{horizon}.png')
+        output_path = os.path.join(save_path, f'validation_{horizon}.png')
         plt.savefig(output_path, bbox_inches='tight', dpi=300)
         print(f"Saved validation plot to: {output_path}")
     plt.close()
@@ -154,3 +154,4 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
