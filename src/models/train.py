@@ -103,23 +103,19 @@ def train_3day_forecaster():
         
         # 8. Comprehensive validation
         validation_results = []
-        horizons = ['24h', '48h', '72h']
-        
-        for i, horizon in enumerate(horizons):
-            try:
-                print(f"\nEvaluating {horizon} forecast...")
-                # Get valid indices (non-NaN and aligned)
-                valid_mask = (~y_test.isna().any(axis=1)) & (y_test.index.isin(X_test.index))
-                
-                # Get aligned data
-                for i, horizon in enumerate(['24h', '48h', '72h']):
-                    y_true = y_test.loc[valid_mask].iloc[:, i]  # Explicit column selection
-                    y_pred = preds[valid_mask, i]
-                
-                # Verify we have data to evaluate
-                if len(y_true) == 0:
-                    print(f"Warning: No valid samples for {horizon} forecast")
-                    continue
+        horizon_map = {'24h': 0, '48h': 1, '72h': 2}  # Explicit mapping
+
+            for horizon_name, horizon_idx in horizon_map.items():
+                print(f"\nEvaluating {horizon_name} forecast...")
+    
+    # Get aligned non-nan samples
+                valid_mask = (~targets.iloc[:, horizon_idx].isna()) & (targets.index.isin(X_test.index))
+                y_true = targets.loc[valid_mask, targets.columns[horizon_idx]]
+                y_pred = preds[valid_mask, horizon_idx]
+    
+    # Verify alignment
+                assert len(y_true) == len(y_pred), "Alignment failed"
+                print(f"Evaluating {len(y_true)} samples")
                 
                 # Evaluate
                 metrics = evaluate_forecast(y_true, y_pred, horizon)
@@ -177,6 +173,7 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
 
