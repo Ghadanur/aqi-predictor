@@ -137,7 +137,7 @@ def train_3day_forecaster():
             explainer.visualize_horizon(X_test.loc[valid_mask], horizon, MODEL_DIR)
             print(f"Saved SHAP plot to: {os.path.join(MODEL_DIR, f'shap_{horizon}.png')}")
                 
-        except Exception as e:
+            except Exception as e:
                 print(f"Error evaluating {horizon} forecast: {str(e)}")
                 continue
         
@@ -173,4 +173,5 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
