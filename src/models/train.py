@@ -39,12 +39,21 @@ def plot_predictions(y_true, y_pred, horizon, save_path=None):
     plt.close()
 
 def evaluate_forecast(y_true, y_pred, horizon):
-    """Comprehensive forecast evaluation"""
+    """Comprehensive forecast evaluation"""# Calculate basic metrics
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    mae = mean_absolute_error(y_true, y_pred)
+    r2 = r2_score(y_true, y_pred)
+    
+    # Calculate accuracy percentage (100 - mean percentage error)
+    percentage_errors = np.abs((y_true - y_pred) / y_true) * 100
+    accuracy = 100 - np.mean(percentage_errors)
+    
     metrics = {
         'horizon': horizon,
-        'RMSE': np.sqrt(mean_squared_error(y_true, y_pred)),
-        'MAE': mean_absolute_error(y_true, y_pred),
-        'R2': r2_score(y_true, y_pred),
+        'RMSE': rmse,
+        'MAE': mae,
+        'R2': r2,
+        'Accuracy (%)': accuracy,
         'mean_error': np.mean(y_pred - y_true),
         'std_error': np.std(y_pred - y_true),
         'max_error': np.max(np.abs(y_pred - y_true)),
@@ -114,8 +123,12 @@ def train_3day_forecaster():
                 # Evaluate
                 metrics = evaluate_forecast(y_true, y_pred, horizon)
                 validation_results.append(metrics)
-                print(f"{horizon} metrics:", {k: round(v, 3) if isinstance(v, float) else v 
-                                           for k, v in metrics.items()})
+                print(f"\n{horizon} Forecast Performance:")
+                print(f"- Accuracy: {metrics['Accuracy (%)']:.2f}%")
+                print(f"- RMSE: {metrics['RMSE']:.2f}")
+                print(f"- MAE: {metrics['MAE']:.2f}")
+                print(f"- R²: {metrics['R2']:.2f}")
+                print(f"- Samples: {metrics['samples']}")
                 
                 # Visual validation
                 plot_predictions(y_true, y_pred, horizon, MODEL_DIR)
@@ -163,6 +176,7 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
 
