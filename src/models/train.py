@@ -8,7 +8,7 @@ import seaborn as sns
 import sys
 import traceback
 import os
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import ExtraTreesRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 try:
     from src.models.explain import ForecastExplainer
@@ -176,6 +176,7 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
 
