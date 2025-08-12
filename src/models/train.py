@@ -101,11 +101,13 @@ def train_3day_forecaster():
         for horizon_name, horizon_idx in horizon_map.items():
             try:
                 print(f"\nEvaluating {horizon_name} forecast...")
-                valid_mask = (~targets.iloc[:, horizon_idx].isna()) & (targets.index.isin(X_test.index))
-                y_true = targets.loc[valid_mask, targets.columns[horizon_idx]]
+                valid_mask = (~y_test.iloc[:, horizon_idx].isna())
+                y_true = y_test.loc[valid_mask].iloc[:, horizon_idx]
                 y_pred = preds[valid_mask, horizon_idx]
-                
-                assert len(y_true) == len(y_pred), "Alignment failed"
+
+                print(f"Shapes - y_true: {y_true.shape}, y_pred: {y_pred.shape}")
+
+                assert len(y_true) == len(y_pred), f"Alignment failed: {len(y_true)} vs {len(y_pred)}"
                 print(f"Evaluating {len(y_true)} samples")
                 
                 metrics = evaluate_forecast(y_true, y_pred, horizon_name)
@@ -154,4 +156,5 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
