@@ -8,6 +8,8 @@ import sys
 import traceback
 import os
 from sklearn.ensemble import ExtraTreesRegressor
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 try:
     from src.features.process import AQI3DayForecastProcessor
@@ -76,12 +78,15 @@ def train_3day_forecaster():
         
         # 5. Train model
         print("Training ExtraTreesRegressor model...")
-        model = ExtraTreesRegressor(
-            n_estimators=200,
-            max_features='sqrt',
-            min_samples_leaf=5,
-            random_state=42,
-            n_jobs=-1
+        model = make_pipeline(
+            StandardScaler(),
+            ExtraTreesRegressor(
+                n_estimators=200,
+                max_depth=10,
+                min_samples_leaf=5,
+                random_state=42,
+                n_jobs=-1
+            )    
         )
         model.fit(X_train, y_train)
         
@@ -156,5 +161,6 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
