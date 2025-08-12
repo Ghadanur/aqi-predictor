@@ -86,6 +86,15 @@ def train_3day_forecaster():
         features['day_of_week'] = features['datetime'].dt.dayofweek
         features['hour_sin'] = np.sin(2*np.pi*features['hour']/24)
         features['hour_cos'] = np.cos(2*np.pi*features['hour']/24)
+    elif 'timestamp' in available_columns:
+        features['datetime'] = pd.to_datetime(features['timestamp'])
+        features['hour'] = features['datetime'].dt.hour
+        features['day_of_week'] = features['datetime'].dt.dayofweek
+        features['hour_sin'] = np.sin(2*np.pi*features['hour']/24)
+        features['hour_cos'] = np.cos(2*np.pi*features['hour']/24)
+    else:
+        print("Warning: No datetime column found - skipping temporal features")
+
         
         # 3. Time-based split
         split_idx = int(0.8 * len(features))
@@ -202,4 +211,5 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
