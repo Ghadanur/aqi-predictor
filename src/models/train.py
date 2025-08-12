@@ -36,24 +36,31 @@ def plot_predictions(y_true, y_pred, horizon, save_path=None):
     plt.close()
 
 def evaluate_forecast(y_true, y_pred, horizon):
-    """Comprehensive forecast evaluation"""
+    """Enhanced evaluation with baseline comparison"""
+    # Basic metrics
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     mae = mean_absolute_error(y_true, y_pred)
     r2 = r2_score(y_true, y_pred)
     
-    percentage_errors = np.abs((y_true - y_pred) / y_true) * 100
-    accuracy = 100 - np.mean(percentage_errors)
+    # Baseline comparison
+    baseline_pred = np.full_like(y_true, y_true.mean())
+    baseline_r2 = r2_score(y_true, baseline_pred)
+    
+    # Robust accuracy calculation
+    with np.errstate(divide='ignore', invalid='ignore'):
+        perc_errors = np.nanmean(np.abs((y_true - y_pred) / np.clip(np.abs(y_true), 1, None))) * 100
     
     return {
         'horizon': horizon,
         'RMSE': rmse,
         'MAE': mae,
         'R2': r2,
-        'Accuracy (%)': accuracy,
+        'Baseline_R2': baseline_r2,
+        'Accuracy (%)': 100 - perc_errors,
+        'samples': len(y_true),
         'mean_error': np.mean(y_pred - y_true),
         'std_error': np.std(y_pred - y_true),
-        'max_error': np.max(np.abs(y_pred - y_true)),
-        'samples': len(y_true)
+        'max_error': np.max(np.abs(y_pred - y_true))
     }
 
 def train_3day_forecaster():
@@ -161,6 +168,7 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
 
