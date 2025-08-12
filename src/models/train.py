@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 import sys
 import traceback
 import os
-from sklearn.ensemble import ExtraTreesRegressor
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import TimeSeriesSplit
@@ -22,16 +22,15 @@ except ImportError:
 MODEL_DIR = Path(__file__).parent
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-def plot_predictions(y_true, y_pred, horizon, baseline_pred=None, save_path=None):
-    """Enhanced visual comparison of predictions vs actuals"""
+def plot_predictions(y_true, y_pred, horizon, save_path=None):
+    """Visual comparison of predictions vs actuals"""
     plt.figure(figsize=(12, 6))
-    plt.plot(y_true.values, label='Actual', linewidth=2)
-    plt.plot(y_pred, label='Model Predicted', linestyle='--', alpha=0.8)
-    if baseline_pred is not None:
-        plt.plot(baseline_pred, label='Baseline (Mean)', linestyle=':', alpha=0.6)
+    plt.plot(y_true.values, label='Actual', marker='o', linestyle='-', alpha=0.7)
+    plt.plot(y_pred, label='Predicted', marker='x', linestyle='--', alpha=0.7)
     plt.title(f'AQI Forecast Validation ({horizon} horizon)')
     plt.xlabel('Time Steps')
-    plt.ylabel('AQI Value')
+    plt.ylabel('AQI Category')
+    plt.yticks(sorted(np.unique(np.concatenate([y_true, y_pred]))))
     plt.legend()
     if save_path:
         output_path = os.path.join(save_path, f'validation_{horizon}.png')
@@ -40,31 +39,24 @@ def plot_predictions(y_true, y_pred, horizon, baseline_pred=None, save_path=None
     plt.close()
 
 def evaluate_forecast(y_true, y_pred, horizon):
-    """Enhanced forecast evaluation with baseline comparison"""
-    # Basic metrics
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    mae = mean_absolute_error(y_true, y_pred)
-    r2 = r2_score(y_true, y_pred)
+    """Classification evaluation with baseline comparison"""
+    # Calculate metrics
+    acc = accuracy_score(y_true, y_pred)
+    baseline_pred = [y_true.mode()[0]] * len(y_true)
+    baseline_acc = accuracy_score(y_true, baseline_pred)
     
-    # Baseline comparison
-    baseline_pred = np.full_like(y_true, y_true.mean())
-    baseline_r2 = r2_score(y_true, baseline_pred)
-    
-    # Robust accuracy calculation
-    with np.errstate(divide='ignore', invalid='ignore'):
-        perc_errors = np.nanmean(np.abs((y_true - y_pred) / np.clip(np.abs(y_true), 1, None))) * 100
+    # Confusion matrix
+    cm = confusion_matrix(y_true, y_pred)
+    print(f"\nConfusion Matrix ({horizon}):")
+    print(cm)
     
     return {
         'horizon': horizon,
-        'RMSE': rmse,
-        'MAE': mae,
-        'R2': r2,
-        'Baseline_R2': baseline_r2,
-        'Accuracy (%)': 100 - perc_errors,
+        'Accuracy': acc,
+        'Baseline_Accuracy': baseline_acc,
+        'Improvement': acc - baseline_acc,
         'samples': len(y_true),
-        'mean_error': np.mean(y_pred - y_true),
-        'std_error': np.std(y_pred - y_true),
-        'max_error': np.max(np.abs(y_pred - y_true))
+        'classification_report': classification_report(y_true, y_pred, output_dict=True)
     }
 
 def train_3day_forecaster():
@@ -74,19 +66,20 @@ def train_3day_forecaster():
         print("Fetching and processing data...")
         features, targets = processor.get_3day_forecast_data(lookback_days=120)
         
+        # Convert targets to integer categories
+        targets = targets.round().astype(int)
+        
         # Data validation checks
         print("\n=== Data Validation ===")
         print("Features shape:", features.shape)
         print("Targets shape:", targets.shape)
-        print("\nTarget summary:")
-        print(targets.describe())
-        print("\nNaN counts:")
-        print("Features:", features.isna().sum().sum())
-        print("Targets:", targets.isna().sum().sum())
+        print("\nTarget value counts:")
+        print(targets.apply(lambda x: x.value_counts()))
         
-        # 2. Reset indices
-        features = features.reset_index(drop=True)
-        targets = targets.reset_index(drop=True)
+        # 2. Add temporal features
+        print("\nAdding temporal features...")
+        features['hour_sin'] = np.sin(2*np.pi*features['hour']/24)
+        features['hour_cos'] = np.cos(2*np.pi*features['hour']/24)
         
         # 3. Time-based split
         split_idx = int(0.8 * len(features))
@@ -96,12 +89,6 @@ def train_3day_forecaster():
         # 4. Verify alignment
         assert X_train.index.equals(y_train.index), "Train index mismatch"
         assert X_test.index.equals(y_test.index), "Test index mismatch"
-        
-        # Feature correlation analysis
-        print("\n=== Feature-Target Correlation ===")
-        for i, col in enumerate(targets.columns):
-            corr = features.corrwith(targets[col]).mean()
-            print(f"{col}: {corr:.3f}")
         
         # 5. Time Series Cross Validation
         print("\n=== Time Series Cross Validation ===")
@@ -114,103 +101,79 @@ def train_3day_forecaster():
             
             model = make_pipeline(
                 StandardScaler(),
-                ExtraTreesRegressor(
+                ExtraTreesClassifier(
                     n_estimators=300,
                     max_depth=10,
                     min_samples_leaf=3,
                     random_state=42,
-                    n_jobs=-1
+                    n_jobs=-1,
+                    class_weight='balanced'
                 )
             )
-            model.fit(X_fold_train, y_fold_train)
-            fold_preds = model.predict(X_fold_val)
             
             for h_name, h_idx in horizon_map.items():
-                val_mask = ~y_fold_val.iloc[:, h_idx].isna()
-                if sum(val_mask) > 0:  # Only evaluate if we have valid samples
-                    fold_metrics = evaluate_forecast(
-                        y_fold_val.loc[val_mask].iloc[:, h_idx],
-                        fold_preds[val_mask, h_idx],
-                        h_name
-                    )
-                    print(f"Fold {fold+1} {h_name} R²: {fold_metrics['R2']:.2f} (Baseline: {fold_metrics['Baseline_R2']:.2f})")
+                model.fit(X_fold_train, y_fold_train.iloc[:, h_idx])
+                fold_preds = model.predict(X_fold_val)
+                fold_acc = accuracy_score(y_fold_val.iloc[:, h_idx], fold_preds)
+                baseline_acc = accuracy_score(y_fold_val.iloc[:, h_idx], 
+                                           [y_fold_val.iloc[:, h_idx].mode()[0]]*len(y_fold_val))
+                print(f"Fold {fold+1} {h_name} Accuracy: {fold_acc:.2f} (Baseline: {baseline_acc:.2f})")
         
-        # 6. Train final model
-        print("\nTraining final model...")
-        model = make_pipeline(
-            StandardScaler(),
-            ExtraTreesRegressor(
-                n_estimators=300,
-                max_depth=10,
-                min_samples_leaf=3,
-                random_state=42,
-                n_jobs=-1
+        # 6. Train final models (one per horizon)
+        print("\nTraining final models...")
+        models = {}
+        for h_name, h_idx in horizon_map.items():
+            model = make_pipeline(
+                StandardScaler(),
+                ExtraTreesClassifier(
+                    n_estimators=300,
+                    max_depth=10,
+                    min_samples_leaf=3,
+                    random_state=42,
+                    n_jobs=-1,
+                    class_weight='balanced'
+                )
             )
-        )
-        model.fit(X_train, y_train)
+            model.fit(X_train, y_train.iloc[:, h_idx])
+            models[h_name] = model
         
-        # 7. Save model
-        model_path = os.path.join(MODEL_DIR, '3day_forecaster.pkl')
-        joblib.dump(model, model_path)
-        print(f"Saved model to: {model_path}")
+        # 7. Save models
+        for h_name, model in models.items():
+            model_path = os.path.join(MODEL_DIR, f'3day_forecaster_{h_name}.pkl')
+            joblib.dump(model, model_path)
+            print(f"Saved {h_name} model to: {model_path}")
         
-        # 8. Generate predictions
-        print("\nGenerating predictions...")
-        preds = model.predict(X_test)
-        
-        # 9. Enhanced Validation
+        # 8. Generate predictions and evaluate
         validation_results = []
-        baseline_comparison = []
-
-        for horizon_name, horizon_idx in horizon_map.items():
+        for h_name, h_idx in horizon_map.items():
             try:
-                print(f"\n=== Evaluating {horizon_name} forecast ===")
-                valid_mask = ~y_test.iloc[:, horizon_idx].isna()
-                y_true = y_test.loc[valid_mask].iloc[:, horizon_idx]
-                y_pred = preds[valid_mask, horizon_idx]
-                y_baseline = np.full_like(y_true, y_true.mean())
+                print(f"\n=== Evaluating {h_name} forecast ===")
+                y_true = y_test.iloc[:, h_idx]
+                y_pred = models[h_name].predict(X_test)
                 
-                print(f"Samples: {len(y_true)}")
-                print(f"True mean: {y_true.mean():.2f}")
+                metrics = evaluate_forecast(y_true, y_pred, h_name)
+                validation_results.append(metrics)
                 
-                # Calculate metrics
-                model_metrics = evaluate_forecast(y_true, y_pred, horizon_name)
-                baseline_metrics = evaluate_forecast(y_true, y_baseline, horizon_name)
+                print(f"\n{h_name} Forecast Performance:")
+                print(f"- Accuracy: {metrics['Accuracy']:.2f} (Baseline: {metrics['Baseline_Accuracy']:.2f})")
+                print(f"- Improvement: {metrics['Improvement']:.2f}")
+                print("\nClassification Report:")
+                print(classification_report(y_true, y_pred))
                 
-                validation_results.append(model_metrics)
-                baseline_comparison.append({
-                    'horizon': horizon_name,
-                    'Baseline_R2': baseline_metrics['R2'],
-                    'Model_R2': model_metrics['R2'],
-                    'Improvement': model_metrics['R2'] - baseline_metrics['R2']
-                })
-                
-                # Print performance
-                print(f"\n{horizon_name} Forecast Performance:")
-                print(f"- R²: {model_metrics['R2']:.2f} (Baseline: {baseline_metrics['R2']:.2f})")
-                print(f"- RMSE: {model_metrics['RMSE']:.2f}")
-                print(f"- MAE: {model_metrics['MAE']:.2f}")
-                print(f"- Accuracy: {model_metrics['Accuracy (%)']:.2f}%")
-                
-                # Plot comparison
-                plot_predictions(y_true, y_pred, horizon_name, y_baseline, MODEL_DIR)
+                plot_predictions(y_true, y_pred, h_name, MODEL_DIR)
                 
             except Exception as e:
-                print(f"Error evaluating {horizon_name}: {str(e)}")
+                print(f"Error evaluating {h_name}: {str(e)}")
                 continue
         
-        # 10. Save reports
+        # 9. Save reports
         pd.DataFrame(validation_results).to_csv(
             os.path.join(MODEL_DIR, 'validation_report.csv'), 
             index=False
         )
-        pd.DataFrame(baseline_comparison).to_csv(
-            os.path.join(MODEL_DIR, 'baseline_comparison.csv'),
-            index=False
-        )
-        print("\nSaved validation reports")
+        print("\nSaved validation report")
         
-        return model
+        return models
 
     except Exception as e:
         print(f"\nTraining failed: {str(e)}")
@@ -220,11 +183,11 @@ def train_3day_forecaster():
 if __name__ == "__main__":
     try:
         print("Starting AQI 3-day forecast model training...")
-        trained_model = train_3day_forecaster()
+        trained_models = train_3day_forecaster()
         
         print("\nGenerated files in model directory:")
         for f in sorted(os.listdir(MODEL_DIR)):
-            if f.startswith(('3day_forecaster', 'validation_', 'baseline_')):
+            if f.startswith(('3day_forecaster', 'validation_')):
                 size = os.path.getsize(os.path.join(MODEL_DIR, f))
                 print(f"- {f} ({size} bytes)")
         
