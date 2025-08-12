@@ -78,6 +78,12 @@ def train_3day_forecaster():
         
         # 2. Add temporal features
         print("\nAdding temporal features...")
+        available_columns = features.columns.tolist()
+
+# Add time-based features only if we have datetime information
+    if 'datetime' in available_columns:
+        features['hour'] = features['datetime'].dt.hour
+        features['day_of_week'] = features['datetime'].dt.dayofweek
         features['hour_sin'] = np.sin(2*np.pi*features['hour']/24)
         features['hour_cos'] = np.cos(2*np.pi*features['hour']/24)
         
@@ -196,3 +202,4 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
