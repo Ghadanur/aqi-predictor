@@ -81,9 +81,9 @@ def train_3day_forecaster():
         model = make_pipeline(
             StandardScaler(),
             ExtraTreesRegressor(
-                n_estimators=200,
+                n_estimators=300,
                 max_depth=10,
-                min_samples_leaf=5,
+                min_samples_leaf=3,
                 random_state=42,
                 n_jobs=-1
             )    
@@ -161,6 +161,7 @@ if __name__ == "__main__":
         print(f"\nCRITICAL ERROR: {str(e)}")
         print("Traceback:", traceback.format_exc())
         sys.exit(1)
+
 
 
 
