@@ -50,10 +50,6 @@ jobs:
             "3day_forecaster_24h.pkl"
             "3day_forecaster_48h.pkl"
             "3day_forecaster_72h.pkl"
-            "validation_24h.png"
-            "validation_48h.png"
-            "validation_72h.png"
-            "validation_report.csv"
           )
     
           for file in "${required_files[@]}"; do
