@@ -69,7 +69,7 @@ def train_aqi_model():
             logging.info(classification_report(true_values, preds))
             
             # Save model with timestamp
-            model_path = MODEL_DIR / f"aqi_{horizon_name}_model_{datetime.now().strftime('%Y%m%d')}.pkl"
+            model_path = MODEL_DIR / f"3day_forecaster_{horizon_name}.pkl"
             joblib.dump(model, model_path)
             logging.info(f"Saved model to: {model_path}")
         
@@ -81,4 +81,5 @@ def train_aqi_model():
 
 if __name__ == "__main__":
     train_aqi_model()
+
 
