@@ -1,3 +1,4 @@
+import os
 import joblib
 import pandas as pd
 import numpy as np
@@ -80,3 +81,4 @@ def train_aqi_model():
 
 if __name__ == "__main__":
     train_aqi_model()
+
