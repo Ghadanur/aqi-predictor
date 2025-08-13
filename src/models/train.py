@@ -1,63 +1,56 @@
-def train_3day_forecaster():
+import joblib
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+import logging
+from pathlib import Path
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def train_aqi_model():
     try:
-        # [Previous data loading code remains the same until model training]
+        # 1. Load data (replace with your actual data loading)
+        data = pd.read_csv('aqi_data.csv')
         
-        # Train final models with versioning
-        logging.info("\nTraining final models...")
+        # 2. Select only the key features we care about
+        features = data[['pm2_5', 'pm10', 'co']]  # Add other confirmed important features
+        targets = data[['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h']]
+        
+        # 3. Simple train-test split
+        split_idx = int(0.8 * len(data))
+        X_train, X_test = features.iloc[:split_idx], features.iloc[split_idx:]
+        y_train, y_test = targets.iloc[:split_idx], targets.iloc[split_idx:]
+        
+        # 4. Train separate models for each horizon
         models = {}
-        model_version = datetime.now().strftime("%Y%m%d_%H%M%S")
+        horizons = ['24h', '48h', '72h']
         
-        for h_name, h_idx in horizon_map.items():
-            # Calculate class weights
-            classes, counts = np.unique(y_train.iloc[:, h_idx], return_counts=True)
-            weights = compute_class_weight('balanced', classes=classes, 
-                                         y=y_train.iloc[:, h_idx])
-            class_weights = dict(zip(classes, weights))
+        for horizon in horizons:
+            # Simple Random Forest (adjust parameters as needed)
+            model = RandomForestClassifier(
+                n_estimators=100,
+                max_depth=5,
+                random_state=42,
+                class_weight='balanced'
+            )
             
-            min_samples = min(counts)
+            model.fit(X_train, y_train[f'aqi_{horizon}'])
+            models[horizon] = model
             
-            # Build appropriate pipeline based on sample size
-            if min_samples >= 3:
-                model = make_pipeline(
-                    StandardScaler(),
-                    CalibratedClassifierCV(
-                        ExtraTreesClassifier(
-                            n_estimators=300,
-                            max_depth=10,
-                            min_samples_leaf=3,
-                            random_state=42,
-                            n_jobs=-1,
-                            class_weight=class_weights
-                        ),
-                        cv=min(3, min_samples),
-                        method='isotonic'
-                    )
-                )
-            else:
-                logging.warning(f"Insufficient samples ({min_samples}) for calibration in {h_name}")
-                model = make_pipeline(
-                    StandardScaler(),
-                    ExtraTreesClassifier(
-                        n_estimators=300,
-                        max_depth=10,
-                        min_samples_leaf=3,
-                        random_state=42,
-                        n_jobs=-1,
-                        class_weight=class_weights
-                    )
-                )
+            # Evaluate
+            preds = model.predict(X_test)
+            accuracy = accuracy_score(y_test[f'aqi_{horizon}'], preds)
+            logging.info(f"{horizon} model accuracy: {accuracy:.2f}")
             
-            try:
-                model.fit(X_train, y_train.iloc[:, h_idx])
-                models[h_name] = model
-                
-                # Save model
-                model_path = os.path.join(MODEL_DIR, f'model_v{model_version}_{h_name}.pkl')
-                joblib.dump(model, model_path)
-                logging.info(f"Saved {h_name} model to: {model_path}")
-                
-            except Exception as e:
-                logging.error(f"Failed to train {h_name} model: {str(e)}")
-                continue
+            # Save model
+            joblib.dump(model, f'aqi_{horizon}_model.pkl')
         
-        # [Rest of the function remains the same]
+        return models
+
+    except Exception as e:
+        logging.error(f"Training failed: {str(e)}")
+        raise
+
+if __name__ == "__main__":
+    train_aqi_model()
