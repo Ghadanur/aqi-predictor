@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-# Import processor with absolute import
+# Import processor
 try:
     from src.features.process import AQI3DayForecastProcessor
 except ImportError as e:
@@ -34,7 +34,7 @@ MODEL_DIR = Path(__file__).parent
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 def preprocess_data(features, targets):
-    """Feature engineering and data preprocessing"""
+    """Feature engineering and preprocessing"""
     # Select core features
     required_features = ['pm2_5', 'pm10', 'co', 'no2', 'o3']
     missing = [f for f in required_features if f not in features.columns]
@@ -48,7 +48,6 @@ def preprocess_data(features, targets):
     for col in ['pm2_5', 'pm10']:
         features[f'{col}_24h_avg'] = features[col].rolling(24, min_periods=12).mean()
         features[f'{col}_48h_avg'] = features[col].rolling(48, min_periods=24).mean()
-        features[f'{col}_24h_diff'] = features[col] - features[col].shift(24)
     
     # Convert to binary classification
     binary_targets = targets.apply(lambda x: np.where(x >= 4, 2, 1))
@@ -61,7 +60,7 @@ def preprocess_data(features, targets):
     return features, binary_targets
 
 def evaluate_model(y_true, y_pred, labels=[1, 2]):
-    """Model evaluation with robust metrics"""
+    """Model evaluation with JSON-serializable metrics"""
     y_true = np.array(y_true)
     y_pred = np.array(y_pred)
     
@@ -71,13 +70,13 @@ def evaluate_model(y_true, y_pred, labels=[1, 2]):
     if len(present_labels) < 2:
         logging.warning(f"Only one class present in evaluation: {present_labels}")
     
-    # Get class counts
-    actual_counts = dict(zip(*np.unique(y_true, return_counts=True)))
-    predicted_counts = dict(zip(*np.unique(y_pred, return_counts=True)))
+    # Convert numpy types to native Python types for JSON serialization
+    actual_counts = {int(k): int(v) for k, v in zip(*np.unique(y_true, return_counts=True))}
+    predicted_counts = {int(k): int(v) for k, v in zip(*np.unique(y_pred, return_counts=True))}
     
     metrics = {
-        'accuracy': accuracy_score(y_true, y_pred),
-        'balanced_accuracy': balanced_accuracy_score(y_true, y_pred),
+        'accuracy': float(accuracy_score(y_true, y_pred)),
+        'balanced_accuracy': float(balanced_accuracy_score(y_true, y_pred)),
         'confusion_matrix': confusion_matrix(y_true, y_pred, labels=labels).tolist(),
         'class_distribution': {
             'actual': actual_counts,
@@ -86,8 +85,10 @@ def evaluate_model(y_true, y_pred, labels=[1, 2]):
     }
     
     if len(eval_labels) > 1:
-        metrics['report'] = classification_report(
-            y_true, y_pred, labels=eval_labels, zero_division=0, output_dict=True)
+        report = classification_report(y_true, y_pred, labels=eval_labels, 
+                                     zero_division=0, output_dict=True)
+        # Convert report keys to strings for JSON
+        metrics['report'] = {str(k): v for k, v in report.items()}
     
     return metrics
 
@@ -184,7 +185,7 @@ def train_aqi_model():
             
             metrics_path = MODEL_DIR / f"metrics_{horizon_name}.json"
             with open(metrics_path, 'w') as f:
-                json.dump(metrics, f, indent=2)
+                json.dump(metrics, f, indent=2, default=str)
             
             logging.info(f"Saved model and metrics for {horizon_name}")
         
