@@ -47,9 +47,12 @@ jobs:
           echo "Generated files:"
           ls -lh src/models/
           required_files=(
-            "3day_forecaster_24h.pkl"
-            "3day_forecaster_48h.pkl"
-            "3day_forecaster_72h.pkl"
+            "aqi_forecaster_24h.pkl"
+            "aqi_forecaster_48h.pkl" 
+            "aqi_forecaster_72h.pkl"
+            "metrics_24h.json"
+            "metrics_48h.json"
+            "metrics_72h.json"
           )
     
           for file in "${required_files[@]}"; do
