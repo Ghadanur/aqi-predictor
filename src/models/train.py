@@ -9,6 +9,7 @@ from sklearn.metrics import (accuracy_score, classification_report,
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.base import clone
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -24,6 +25,21 @@ logging.basicConfig(
 )
 MODEL_DIR = Path(__file__).parent
 os.makedirs(MODEL_DIR, exist_ok=True)
+
+try:
+    # Try absolute import first
+    from src.features.process import AQI3DayForecastProcessor
+except ImportError:
+    try:
+        # Try relative import if absolute fails
+        from ..features.process import AQI3DayForecastProcessor
+    except ImportError:
+        try:
+            # Try direct import for some project structures
+            from features.process import AQI3DayForecastProcessor
+        except ImportError as e:
+            logging.error("Failed to import AQI3DayForecastProcessor: %s", str(e))
+            raise
 
 def preprocess_data(features, targets):
     """Handle feature engineering and target processing"""
