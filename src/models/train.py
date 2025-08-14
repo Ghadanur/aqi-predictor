@@ -1,180 +1,122 @@
-import os
-import joblib
-import json
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import ExtraTreesClassifier
-from sklearn.metrics import (accuracy_score, classification_report, 
-                           balanced_accuracy_score, confusion_matrix)
-from sklearn.pipeline import make_pipeline
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.base import clone
+from sklearn.metrics import mean_squared_error
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+from process import AQI3DayForecastProcessor
 import logging
-from pathlib import Path
-from datetime import datetime
+import joblib
+import os
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('aqi_training.log'),
-        logging.StreamHandler()
-    ]
-)
-MODEL_DIR = Path(__file__).parent
-os.makedirs(MODEL_DIR, exist_ok=True)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-try:
-    # Try absolute import first
-    from src.features.process import AQI3DayForecastProcessor
-except ImportError:
-    try:
-        # Try relative import if absolute fails
-        from ..features.process import AQI3DayForecastProcessor
-    except ImportError:
-        try:
-            # Try direct import for some project structures
-            from features.process import AQI3DayForecastProcessor
-        except ImportError as e:
-            logging.error("Failed to import AQI3DayForecastProcessor: %s", str(e))
-            raise
-
-def preprocess_data(features, targets):
-    """Handle feature engineering and target processing"""
-    # Feature engineering
-    features = features[['pm2_5', 'pm10', 'co', 'no2', 'o3']].copy()
-    
-    # Add rolling averages
-    for col in ['pm2_5', 'pm10']:
-        features[f'{col}_24h_avg'] = features[col].rolling(24).mean()
-        features[f'{col}_48h_avg'] = features[col].rolling(48).mean()
-    
-    # Convert to binary classification (1 = good/moderate, 2 = poor)
-    binary_targets = targets.apply(lambda x: np.where(x >= 4, 2, 1))
-    
-    # Drop rows with NaN values from rolling averages
-    valid_idx = features.dropna().index
-    return features.loc[valid_idx], binary_targets.loc[valid_idx]
-
-def evaluate_model(y_true, y_pred, labels=[1, 2]):
-    """Robust evaluation with proper label handling"""
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    # Ensure we have both classes represented
-    present_labels = np.unique(np.concatenate([y_true, y_pred]))
-    eval_labels = [l for l in labels if l in present_labels]
-    
-    metrics = {
-        'accuracy': accuracy_score(y_true, y_pred),
-        'balanced_accuracy': balanced_accuracy_score(y_true, y_pred),
-        'confusion_matrix': confusion_matrix(y_true, y_pred, labels=labels).tolist(),
-        'report': classification_report(y_true, y_pred, labels=eval_labels, 
-                                      zero_division=0, output_dict=True)
-    }
-    return metrics
-
-def train_aqi_model():
-    try:
-        # 1. Get data from Hopsworks
-        logging.info("Fetching data from Hopsworks...")
-        processor = AQI3DayForecastProcessor()
-        features, targets = processor.get_3day_forecast_data(lookback_days=180)
+class AQIModelTrainer:
+    def __init__(self):
+        self.processor = AQI3DayForecastProcessor()
+        self.model = None
+        self.scaler = StandardScaler()
         
-        # 2. Preprocess data
-        features, binary_targets = preprocess_data(features, targets.round().astype(int))
+    def prepare_data(self):
+        """Get and preprocess data"""
+        logger.info("Preparing data...")
+        features, targets = self.processor.get_3day_forecast_data()
         
-        # 3. Time-based split with temporal gap
-        split_idx = int(0.7 * len(features))
-        X_train, X_test = features.iloc[:split_idx], features.iloc[split_idx:]
-        y_train, y_test = binary_targets.iloc[:split_idx], binary_targets.iloc[split_idx:]
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            features.values,
+            targets.values,
+            test_size=0.2,
+            shuffle=False  # Important for time series!
+        )
         
-        # Verify we have both classes in training data
-        for col in y_train.columns:
-            if len(y_train[col].unique()) < 2:
-                raise ValueError(f"Not enough classes in training data for {col}")
+        # Scale features
+        X_train = self.scaler.fit_transform(X_train)
+        X_test = self.scaler.transform(X_test)
         
-        # 4. Train models for each horizon
-        horizons = {'24h': 0, '48h': 1, '72h': 2}
-        models = {}
+        # Reshape for LSTM [samples, timesteps, features]
+        X_train = X_train.reshape(X_train.shape[0], 1, X_train.shape[1])
+        X_test = X_test.reshape(X_test.shape[0], 1, X_test.shape[1])
         
-        for horizon_name, horizon_idx in horizons.items():
-            logging.info(f"\n=== Training {horizon_name} model ===")
-            
-            y_train_h = y_train.iloc[:, horizon_idx]
-            y_test_h = y_test.iloc[:, horizon_idx]
-            
-            # Check class distribution
-            class_counts = y_train_h.value_counts()
-            logging.info(f"Class distribution:\n{class_counts.to_string()}")
-            
-            # Build pipeline with careful parameter tuning
-            model = make_pipeline(
-                StandardScaler(),
-                ExtraTreesClassifier(
-                    n_estimators=200,
-                    max_features='sqrt',
-                    max_depth=10,
-                    min_samples_split=20,
-                    min_samples_leaf=10,
-                    bootstrap=True,
-                    random_state=42,
-                    class_weight='balanced',
-                    n_jobs=-1
-                )
+        return X_train, X_test, y_train, y_test
+    
+    def build_model(self, input_shape):
+        """Create LSTM model architecture"""
+        logger.info("Building model...")
+        model = Sequential([
+            LSTM(128, input_shape=input_shape, return_sequences=True),
+            Dropout(0.2),
+            LSTM(64),
+            Dropout(0.2),
+            Dense(32, activation='relu'),
+            Dense(4)  # Output layer for 4 targets
+        ])
+        
+        model.compile(
+            optimizer='adam',
+            loss='mse',
+            metrics=['mae']
+        )
+        
+        return model
+    
+    def train(self):
+        """Train the model"""
+        X_train, X_test, y_train, y_test = self.prepare_data()
+        
+        self.model = self.build_model((X_train.shape[1], X_train.shape[2]))
+        
+        early_stop = EarlyStopping(monitor='val_loss', patience=10)
+        
+        logger.info("Training model...")
+        history = self.model.fit(
+            X_train, y_train,
+            validation_data=(X_test, y_test),
+            epochs=100,
+            batch_size=32,
+            callbacks=[early_stop],
+            verbose=1
+        )
+        
+        return history
+    
+    def evaluate(self, X_test, y_test):
+        """Evaluate model performance"""
+        logger.info("Evaluating model...")
+        predictions = self.model.predict(X_test)
+        
+        # Calculate RMSE for each horizon
+        rmse = {}
+        for i, horizon in enumerate(['current', '24h', '48h', '72h']):
+            rmse[f'rmse_{horizon}'] = np.sqrt(
+                mean_squared_error(y_test[:, i], predictions[:, i])
             )
-            
-            # Add cross-validation
-            tscv = TimeSeriesSplit(n_splits=3)
-            best_score = 0
-            for train_idx, val_idx in tscv.split(X_train):
-                X_fold_train, X_fold_val = X_train.iloc[train_idx], X_train.iloc[val_idx]
-                y_fold_train, y_fold_val = y_train_h.iloc[train_idx], y_train_h.iloc[val_idx]
-                
-                model.fit(X_fold_train, y_fold_train)
-                fold_preds = model.predict(X_fold_val)
-                fold_score = balanced_accuracy_score(y_fold_val, fold_preds)
-                
-                if fold_score > best_score:
-                    best_score = fold_score
-                    best_model = clone(model)
-                    best_model.fit(np.concatenate([X_fold_train, X_fold_val]),
-                                  np.concatenate([y_fold_train, y_fold_val]))
-            
-            model = best_model
-            models[horizon_name] = model
-            
-            # Evaluate
-            preds = model.predict(X_test)
-            metrics = evaluate_model(y_test_h, preds)
-            
-            logging.info(f"\nPerformance Metrics for {horizon_name}:")
-            logging.info(f"Accuracy: {metrics['accuracy']:.2f}")
-            logging.info(f"Balanced Accuracy: {metrics['balanced_accuracy']:.2f}")
-            logging.info("Confusion Matrix:")
-            logging.info(np.array2string(np.array(metrics['confusion_matrix']), 
-                                       formatter={'int': lambda x: f"{x:4d}"}))
-            
-            logging.info("\nClassification Report:")
-            logging.info(classification_report(y_test_h, preds, zero_division=0))
-            
-            # Save model
-            model_path = MODEL_DIR / f"aqi_forecaster_{horizon_name}.pkl"
-            joblib.dump(model, model_path)
-            logging.info(f"Saved model to: {model_path}")
-            
-            # Save metrics
-            metrics_path = MODEL_DIR / f"metrics_{horizon_name}.json"
-            with open(metrics_path, 'w') as f:
-                json.dump(metrics, f, indent=2)
-            
-        return models
+        
+        return rmse
+    
+    def save_model(self, model_dir='models'):
+        """Save model and scaler"""
+        os.makedirs(model_dir, exist_ok=True)
+        
+        # Save Keras model
+        self.model.save(f'{model_dir}/aqi_forecast_model.h5')
+        
+        # Save scaler
+        joblib.dump(self.scaler, f'{model_dir}/scaler.pkl')
+        
+        logger.info(f"Model saved to {model_dir}")
 
-    except Exception as e:
-        logging.error(f"Training failed: {str(e)}", exc_info=True)
-        raise
-
-if __name__ == "__main__":
-    train_aqi_model()
+if __name__ == '__main__':
+    trainer = AQIModelTrainer()
+    history = trainer.train()
+    
+    # Evaluate and save
+    X_train, X_test, y_train, y_test = trainer.prepare_data()
+    metrics = trainer.evaluate(X_test, y_test)
+    logger.info(f"Model metrics: {metrics}")
+    
+    trainer.save_model()
