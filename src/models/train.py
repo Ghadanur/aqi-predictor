@@ -11,6 +11,10 @@ from sklearn.preprocessing import StandardScaler
 import logging
 from pathlib import Path
 from datetime import datetime
+try:
+    from src.features.process import AQI3DayForecastProcessor
+except ImportError:
+    from features.process import AQI3DayForecastProcessor
 
 # Setup logging
 logging.basicConfig(
@@ -118,3 +122,4 @@ def train_aqi_model():
 
 if __name__ == "__main__":
     train_aqi_model()
+
