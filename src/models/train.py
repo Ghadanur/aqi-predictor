@@ -115,25 +115,33 @@ def train_aqi_model():
     try:
         # 1. Get enhanced data
         processor = AQI3DayForecastProcessor()
-        features, targets = processor.get_3day_forecast_data(lookback_days=365)  # 1 year data
+        features, targets = processor.get_3day_forecast_data(lookback_days=365)
         
         # 2. Preprocess with 6-class targets
         features, targets = preprocess_data(features, targets)
         
-        # 3. Validate dataset
+        # 3. Validate dataset - handle single-class case
         class_dist = targets.iloc[:, 0].value_counts(normalize=True)
-        if class_dist.min() < 0.1:  # Any class <10%
-            logging.warning(f"Severe class imbalance: {class_dist.to_dict()}")
+        if len(class_dist) < 2:
+            logging.error("Insufficient class diversity - only one AQI category present")
+            return None
         
-        # 4. Stratified time split
-        X_train, X_test, y_train, y_test = stratified_time_split(
-            features, targets.iloc[:, 0]  # Use first horizon for split
-        )
+        # 4. Stratified time split with fallback
+        try:
+            X_train, X_test, y_train, y_test = stratified_time_split(
+                features, targets.iloc[:, 0]
+            )
+        except ValueError as e:
+            logging.warning(f"Could not create balanced split: {str(e)}")
+            # Fallback to simple time split
+            split_idx = int(len(features) * 0.7)
+            X_train, X_test = features.iloc[:split_idx], features.iloc[split_idx:]
+            y_train, y_test = targets.iloc[:split_idx], targets.iloc[split_idx:]
         
-        # 5. Enhanced model pipeline with SMOTE
+        # 5. Enhanced model pipeline with class weighting
         model = make_imb_pipeline(
             StandardScaler(),
-            SMOTE(sampling_strategy='not majority', random_state=42),
+            SMOTE(sampling_strategy='auto', random_state=42),
             ExtraTreesClassifier(
                 n_estimators=200,
                 class_weight='balanced',
@@ -143,60 +151,45 @@ def train_aqi_model():
             )
         )
         
-        # 6. Time-series cross validation
-        tscv = TimeSeriesSplit(n_splits=5)
-        cv_results = {h: [] for h in ['24h', '48h', '72h']}
-        
+        # 6. Time-series cross validation with fixed indexing
+        tscv = TimeSeriesSplit(n_splits=3)  # Reduced for stability
         for i, (train_idx, val_idx) in enumerate(tscv.split(X_train)):
-            fold_metrics = {}
+            # Convert numpy arrays to pandas-compatible indices
+            train_idx_pd = X_train.index[train_idx]
+            val_idx_pd = X_train.index[val_idx]
             
+            fold_metrics = {}
             for horizon in ['24h', '48h', '72h']:
                 h_idx = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h'].index(f'aqi_{horizon}')
-                model.fit(X_train.iloc[train_idx], y_train.iloc[train_idx, h_idx])
-                preds = model.predict(X_train.iloc[val_idx])
                 
-                metrics = evaluate_model(y_train.iloc[val_idx, h_idx], preds)
-                cv_results[horizon].append(metrics)
+                # Fixed indexing using .loc[]
+                X_fold_train = X_train.loc[train_idx_pd]
+                y_fold_train = y_train.loc[train_idx_pd, y_train.columns[h_idx]]
+                X_fold_val = X_train.loc[val_idx_pd]
+                y_fold_val = y_train.loc[val_idx_pd, y_train.columns[h_idx]]
                 
+                model.fit(X_fold_train, y_fold_train)
+                preds = model.predict(X_fold_val)
+                
+                metrics = evaluate_model(y_fold_val, preds)
                 logging.info(
                     f"Fold {i+1} {horizon} - "
                     f"R²: {metrics['regression']['r2']:.2f} | "
-                    f"MAE: {metrics['regression']['mae']:.1f} | "
-                    f"CatAcc: {metrics['classification']['category_accuracy']:.1%}"
+                    f"MAE: {metrics['regression']['mae']:.1f}"
                 )
         
         # 7. Final training and evaluation
         for horizon in ['24h', '48h', '72h']:
             h_idx = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h'].index(f'aqi_{horizon}')
             
-            # Train final model
             model.fit(X_train, y_train.iloc[:, h_idx])
-            
-            # Evaluate on test set
             test_preds = model.predict(X_test)
-            test_metrics = evaluate_model(y_test.iloc[:, h_idx], test_preds, return_continuous=True)
             
             # Save model and metrics
             joblib.dump(model, MODEL_DIR / f"aqi_{horizon}_model.pkl")
             with open(MODEL_DIR / f"aqi_{horizon}_metrics.json", 'w') as f:
-                json.dump(test_metrics, f, indent=2)
-            
-            # Log final performance
-            logging.info(f"\n=== Final {horizon} Model Performance ===")
-            logging.info(f"R²: {test_metrics['regression']['r2']:.3f}")
-            logging.info(f"MAE: {test_metrics['regression']['mae']:.1f} AQI points")
-            logging.info(f"Category Accuracy: {test_metrics['classification']['category_accuracy']:.1%}")
-            logging.info(f"High AQI Recall: {test_metrics['classification']['high_aqi_recall']:.1%}")
-            
-            # Save predictions for analysis
-            pd.DataFrame({
-                'true_aqi': test_metrics['continuous_values']['true_aqi'],
-                'pred_aqi': test_metrics['continuous_values']['pred_aqi']
-            }).to_csv(MODEL_DIR / f"aqi_{horizon}_predictions.csv", index=False)
+                json.dump(evaluate_model(y_test.iloc[:, h_idx], test_preds), f, indent=2)
                 
     except Exception as e:
         logging.error(f"Training failed: {str(e)}", exc_info=True)
         raise
-
-if __name__ == "__main__":
-    train_aqi_model()
