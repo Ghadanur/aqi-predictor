@@ -143,3 +143,15 @@ def train_aqi_model():
     except Exception as e:
         logging.error(f"Training failed: {str(e)}", exc_info=True)
         raise
+from sklearn.metrics import r2_score
+
+def calculate_regression_metrics(y_true, y_pred):
+    """Calculate both regression and classification metrics"""
+    metrics = {
+        'mae': mean_absolute_error(y_true, y_pred),
+        'rmse': np.sqrt(mean_squared_error(y_true, y_pred)),
+        'r2': r2_score(y_true, y_pred),
+        'category_accuracy': aqi_category_accuracy(y_true, y_pred),
+        'high_aqi_recall': high_aqi_recall(y_true, y_pred)
+    }
+    return metrics
