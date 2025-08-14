@@ -5,7 +5,8 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.metrics import (accuracy_score, classification_report, 
-                           balanced_accuracy_score, confusion_matrix)
+                           balanced_accuracy_score, confusion_matrix,
+                           mean_absolute_error, mean_squared_error, r2_score)
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import TimeSeriesSplit
@@ -34,6 +35,10 @@ logging.basicConfig(
 MODEL_DIR = Path(__file__).parent
 os.makedirs(MODEL_DIR, exist_ok=True)
 
+# AQI bins configuration
+AQI_BINS = [0, 50, 100, 150, 200, 300, 500]
+AQI_LABELS = [1, 2, 3, 4, 5, 6]
+
 def stratified_time_split(features, targets, test_size=0.3):
     """Time-based split ensuring all classes in test set"""
     split_idx = int(len(features) * (1 - test_size))
@@ -52,29 +57,58 @@ def stratified_time_split(features, targets, test_size=0.3):
 
 def preprocess_data(features, targets):
     """Enhanced feature engineering with temporal validation"""
-    # Convert targets to categorical bins
-    bins = [0, 50, 100, 150, 200, 300, 500]
-    labels = [1, 2, 3, 4, 5, 6]
-    
     binary_targets = pd.DataFrame()
     for col in targets.columns:
-        binary_targets[col] = pd.cut(targets[col], bins=bins, labels=labels)
+        binary_targets[col] = pd.cut(targets[col], bins=AQI_BINS, labels=AQI_LABELS)
     
     # Drop NA and align indices
     valid_idx = features.dropna().index.intersection(binary_targets.index)
     return features.loc[valid_idx], binary_targets.loc[valid_idx]
 
-def evaluate_model(y_true, y_pred, labels):
-    """Robust evaluation with class validation"""
-    if len(np.unique(y_true)) < 2:
-        return {
-            'accuracy': float(accuracy_score(y_true, y_pred)),
-            'balanced_accuracy': 0.5,
-            'confusion_matrix': [[len(y_true), 0], [0, 0]],
-            'note': 'single_class_evaluation'
+def aqi_category_accuracy(y_true, y_pred):
+    """Check if predictions fall in correct EPA category"""
+    correct = np.sum(y_true == y_pred)
+    return correct / len(y_true)
+
+def high_aqi_recall(y_true, y_pred, threshold=4):
+    """Detection rate for unhealthy days (category 4+)"""
+    unhealthy = y_true >= threshold
+    if np.sum(unhealthy) == 0:
+        return np.nan
+    return np.sum(y_pred[unhealthy] >= threshold) / np.sum(unhealthy)
+
+def evaluate_model(y_true, y_pred, return_continuous=False):
+    """
+    Comprehensive evaluation with both classification and regression metrics
+    
+    Args:
+        return_continuous: If True, returns metrics for continuous AQI values
+    """
+    # Convert from categorical to continuous AQI
+    true_aqi = np.interp(y_true, [1, 6], [0, 500])
+    pred_aqi = np.interp(y_pred, [1, 6], [0, 500])
+    
+    metrics = {
+        'classification': {
+            'accuracy': accuracy_score(y_true, y_pred),
+            'balanced_accuracy': balanced_accuracy_score(y_true, y_pred),
+            'category_accuracy': aqi_category_accuracy(y_true, y_pred),
+            'high_aqi_recall': high_aqi_recall(y_true, y_pred),
+            'confusion_matrix': confusion_matrix(y_true, y_pred, labels=AQI_LABELS).tolist()
+        },
+        'regression': {
+            'mae': mean_absolute_error(true_aqi, pred_aqi),
+            'rmse': np.sqrt(mean_squared_error(true_aqi, pred_aqi)),
+            'r2': r2_score(true_aqi, pred_aqi)
+        }
+    }
+    
+    if return_continuous:
+        metrics['continuous_values'] = {
+            'true_aqi': true_aqi.tolist(),
+            'pred_aqi': pred_aqi.tolist()
         }
     
-    # Rest of evaluation logic...
     return metrics
 
 def train_aqi_model():
@@ -111,47 +145,58 @@ def train_aqi_model():
         
         # 6. Time-series cross validation
         tscv = TimeSeriesSplit(n_splits=5)
+        cv_results = {h: [] for h in ['24h', '48h', '72h']}
+        
         for i, (train_idx, val_idx) in enumerate(tscv.split(X_train)):
-            fold_scores = []
+            fold_metrics = {}
             
-            # Train separate models for each horizon
             for horizon in ['24h', '48h', '72h']:
                 h_idx = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h'].index(f'aqi_{horizon}')
                 model.fit(X_train.iloc[train_idx], y_train.iloc[train_idx, h_idx])
                 preds = model.predict(X_train.iloc[val_idx])
-                score = balanced_accuracy_score(y_train.iloc[val_idx, h_idx], preds)
-                fold_scores.append(score)
-            
-            logging.info(f"Fold {i+1} CV Scores - 24h:{fold_scores[0]:.2f} "
-                       f"48h:{fold_scores[1]:.2f} 72h:{fold_scores[2]:.2f}")
+                
+                metrics = evaluate_model(y_train.iloc[val_idx, h_idx], preds)
+                cv_results[horizon].append(metrics)
+                
+                logging.info(
+                    f"Fold {i+1} {horizon} - "
+                    f"R²: {metrics['regression']['r2']:.2f} | "
+                    f"MAE: {metrics['regression']['mae']:.1f} | "
+                    f"CatAcc: {metrics['classification']['category_accuracy']:.1%}"
+                )
         
-        # Final training and evaluation
+        # 7. Final training and evaluation
         for horizon in ['24h', '48h', '72h']:
             h_idx = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h'].index(f'aqi_{horizon}')
+            
+            # Train final model
             model.fit(X_train, y_train.iloc[:, h_idx])
+            
+            # Evaluate on test set
+            test_preds = model.predict(X_test)
+            test_metrics = evaluate_model(y_test.iloc[:, h_idx], test_preds, return_continuous=True)
             
             # Save model and metrics
             joblib.dump(model, MODEL_DIR / f"aqi_{horizon}_model.pkl")
-            
-            # Evaluate
-            preds = model.predict(X_test)
-            metrics = evaluate_model(y_test.iloc[:, h_idx], preds, labels=range(1,7))
-            
             with open(MODEL_DIR / f"aqi_{horizon}_metrics.json", 'w') as f:
-                json.dump(metrics, f)
+                json.dump(test_metrics, f, indent=2)
+            
+            # Log final performance
+            logging.info(f"\n=== Final {horizon} Model Performance ===")
+            logging.info(f"R²: {test_metrics['regression']['r2']:.3f}")
+            logging.info(f"MAE: {test_metrics['regression']['mae']:.1f} AQI points")
+            logging.info(f"Category Accuracy: {test_metrics['classification']['category_accuracy']:.1%}")
+            logging.info(f"High AQI Recall: {test_metrics['classification']['high_aqi_recall']:.1%}")
+            
+            # Save predictions for analysis
+            pd.DataFrame({
+                'true_aqi': test_metrics['continuous_values']['true_aqi'],
+                'pred_aqi': test_metrics['continuous_values']['pred_aqi']
+            }).to_csv(MODEL_DIR / f"aqi_{horizon}_predictions.csv", index=False)
                 
     except Exception as e:
         logging.error(f"Training failed: {str(e)}", exc_info=True)
         raise
-from sklearn.metrics import r2_score
 
-def calculate_regression_metrics(y_true, y_pred):
-    """Calculate both regression and classification metrics"""
-    metrics = {
-        'mae': mean_absolute_error(y_true, y_pred),
-        'rmse': np.sqrt(mean_squared_error(y_true, y_pred)),
-        'r2': r2_score(y_true, y_pred),
-        'category_accuracy': aqi_category_accuracy(y_true, y_pred),
-        'high_aqi_recall': high_aqi_recall(y_true, y_pred)
-    }
-    return metrics
+if __name__ == "__main__":
+    train_aqi_model()
