@@ -55,21 +55,6 @@ jobs:
             ${{ github.workspace }}/src/models/*.log
           retention-days: 7
 
-      - name: Notify on failure
-        if: failure()
-        uses: actions/slack@v1
-        with:
-          payload: |
-            {
-              "text": "🚨 AQI Training Pipeline Failed",
-              "attachments": [{
-                "color": "#ff0000",
-                "actions": [{
-                  "type": "button",
-                  "text": "View Run",
-                  "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                }]
-              }]
-            }
+    
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
