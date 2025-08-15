@@ -1,3 +1,5 @@
+import logging
+from pathlib import Path
 import os
 import sys
 import joblib
@@ -74,3 +76,4 @@ if __name__ == "__main__":
     logger.info("Script started")
     train_aqi_model()
     logger.info("Script completed")
+
