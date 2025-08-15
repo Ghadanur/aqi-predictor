@@ -179,10 +179,7 @@ def train_aqi_model():
                 )
         
         # 7. Final training and evaluation with detailed printing
-        print("\nFinal Model Evaluation Results:")
-        print("="*60)
-        print(f"{'Horizon':<10}{'R²':<10}{'RMSE':<10}{'MAE':<10}{'Accuracy':<10}{'Balanced Acc':<15}")
-        print("-"*60)
+        results = []
         
         for horizon in ['24h', '48h', '72h']:
             h_idx = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h'].index(f'aqi_{horizon}')
@@ -191,22 +188,38 @@ def train_aqi_model():
             test_preds = model.predict(X_test)
             metrics = evaluate_model(y_test.iloc[:, h_idx], test_preds)
             
-            # Print metrics in a formatted way
-            print(f"{horizon:<10}"
-                  f"{metrics['regression']['r2']:.3f}{'':<2}"
-                  f"{metrics['regression']['rmse']:.1f}{'':<4}"
-                  f"{metrics['regression']['mae']:.1f}{'':<4}"
-                  f"{metrics['classification']['accuracy']:.3f}{'':<4}"
-                  f"{metrics['classification']['balanced_accuracy']:.3f}")
+            # Store results for printing
+            results.append({
+                'horizon': horizon,
+                'r2': metrics['regression']['r2'],
+                'rmse': metrics['regression']['rmse'],
+                'mae': metrics['regression']['mae'],
+                'accuracy': metrics['classification']['accuracy'],
+                'balanced_accuracy': metrics['classification']['balanced_accuracy']
+            })
             
             # Save model and metrics
             joblib.dump(model, MODEL_DIR / f"aqi_{horizon}_model.pkl")
             with open(MODEL_DIR / f"aqi_{horizon}_metrics.json", 'w') as f:
                 json.dump(metrics, f, indent=2)
         
-        print("="*60)
-        print("Note: RMSE and MAE are in AQI units (0-500 scale)")
-        
+        # Print formatted results to ensure they appear in logs
+        print("\n=== FINAL MODEL EVALUATION ===")
+        print(f"{'Horizon':<8}{'R²':<8}{'RMSE':<8}{'MAE':<8}{'Accuracy':<10}{'Balanced Acc':<12}")
+        for r in results:
+            print(f"{r['horizon']:<8}"
+                  f"{r['r2']:.3f}{'':<2}"
+                  f"{r['rmse']:.1f}{'':<2}"
+                  f"{r['mae']:.1f}{'':<2}"
+                  f"{r['accuracy']:.3f}{'':<4}"
+                  f"{r['balanced_accuracy']:.3f}")
+        print("============================")
+
     except Exception as e:
         logging.error(f"Training failed: {str(e)}", exc_info=True)
         raise
+
+# Ensure the function is called when script is run directly
+if __name__ == "__main__":
+    train_aqi_model()
+
