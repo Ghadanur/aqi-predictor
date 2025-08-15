@@ -38,9 +38,12 @@ jobs:
 
       - name: Train model
         run: |
-          python -m src.models.train | tee training.log
-          echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
-          cat training.log  # Display training logs
+          echo "Current directory: $(pwd)"
+          python -m src.models.train 2>&1 | tee training.log
+          echo "=== Training Log ==="
+          cat training.log
+          echo "=== Model Directory Contents ==="
+          ls -la src/models/
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
 
