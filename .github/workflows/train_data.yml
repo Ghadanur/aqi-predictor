@@ -30,24 +30,26 @@ jobs:
 
       - name: Process data
         run: |
-          python -m src.features.process --lookback_days 90
+          python -m src.features.process --lookback_days 90 | tee processing.log
           echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" > timing.log
+          cat processing.log  # Display processing logs
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
 
       - name: Train model
         run: |
-          python -m src.models.train
+          python -m src.models.train | tee training.log
           echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
+          cat training.log  # Display training logs
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-      - name: Upload artifacts
-        run: |
-          uses: actions/upload-artifact@v4
-          with:
-          name: model-artifacts-${{ github.run_id }}
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v3
+        with:
+          name: pipeline-logs
           path: |
-            src/models/3day_forecaster.pkl
-            src/models/validation_*
+            processing.log
+            training.log
             timing.log
-          
+            src/models/aqi_training.log
