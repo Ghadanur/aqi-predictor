@@ -39,5 +39,10 @@ jobs:
         run: |
           python -m src.models.train
           echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
+          name: Upload logs
+          uses: actions/upload-artifact@v3
+          with:
+          name: training-logs
+          path: src/models/aqi_training.log
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}   
