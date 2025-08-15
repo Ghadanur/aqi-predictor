@@ -180,18 +180,35 @@ def train_aqi_model():
                     f"MAE: {metrics['regression']['mae']:.1f}"
                 )
         
-        # 7. Final training and evaluation
+        # 7. Final training and evaluation with detailed printing
+        print("\nFinal Model Evaluation Results:")
+        print("="*60)
+        print(f"{'Horizon':<10}{'R²':<10}{'RMSE':<10}{'MAE':<10}{'Accuracy':<10}{'Balanced Acc':<15}")
+        print("-"*60)
+        
         for horizon in ['24h', '48h', '72h']:
             h_idx = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h'].index(f'aqi_{horizon}')
             
             model.fit(X_train, y_train.iloc[:, h_idx])
             test_preds = model.predict(X_test)
+            metrics = evaluate_model(y_test.iloc[:, h_idx], test_preds)
+            
+            # Print metrics in a formatted way
+            print(f"{horizon:<10}"
+                  f"{metrics['regression']['r2']:.3f}{'':<2}"
+                  f"{metrics['regression']['rmse']:.1f}{'':<4}"
+                  f"{metrics['regression']['mae']:.1f}{'':<4}"
+                  f"{metrics['classification']['accuracy']:.3f}{'':<4}"
+                  f"{metrics['classification']['balanced_accuracy']:.3f}")
             
             # Save model and metrics
             joblib.dump(model, MODEL_DIR / f"aqi_{horizon}_model.pkl")
             with open(MODEL_DIR / f"aqi_{horizon}_metrics.json", 'w') as f:
-                json.dump(evaluate_model(y_test.iloc[:, h_idx], test_preds), f, indent=2)
-                
+                json.dump(metrics, f, indent=2)
+        
+        print("="*60)
+        print("Note: RMSE and MAE are in AQI units (0-500 scale)")
+        
     except Exception as e:
         logging.error(f"Training failed: {str(e)}", exc_info=True)
         raise
