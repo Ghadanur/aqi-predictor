@@ -30,36 +30,14 @@ jobs:
 
       - name: Process data
         run: |
-          python -m src.features.process --lookback_days 90 | tee processing.log
+          python -m src.features.process --lookback_days 90
           echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" > timing.log
-          cat processing.log  # Display processing logs
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
 
       - name: Train model
         run: |
-          echo "Current directory: $(pwd)"
-          echo "Directory contents:"
-          ls -la
-          echo "Python path: $PYTHONPATH"
-          echo "Running training script..."
-          python -m src.models.train_model 2>&1 | tee training.log
-          echo "=== Training Output ==="
-          cat training.log
-          echo "=== Model Directory Contents ==="
-          ls -la src/models/
-          echo "=== Log File Contents ==="
-          cat src/models/aqi_training.log
+          python -m src.models.train
+          echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
         env:
-          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-          PYTHONPATH: ${{ github.workspace }}
-
-      - name: Upload logs
-        uses: actions/upload-artifact@v4
-        with:
-          name: pipeline-logs
-          path: |
-            processing.log
-            training.log
-            timing.log
-            src/models/aqi_training.log
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}   
