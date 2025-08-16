@@ -98,6 +98,7 @@ def evaluate_model(y_true, y_pred, return_continuous=False):
         },
         'regression': {
             'mae': mean_absolute_error(true_aqi, pred_aqi),
+            'mse': mean_squared_error(true_aqi, pred_aqi),  # Added MSE
             'rmse': np.sqrt(mean_squared_error(true_aqi, pred_aqi)),
             'r2': r2_score(true_aqi, pred_aqi)
         }
@@ -110,6 +111,57 @@ def evaluate_model(y_true, y_pred, return_continuous=False):
         }
     
     return metrics
+
+def display_predictions_and_metrics(y_true, y_pred, horizon, fold=None):
+    """Display predictions and key metrics in a formatted way"""
+    # Convert to continuous AQI for display
+    true_aqi = np.interp(y_true, [1, 6], [0, 500])
+    pred_aqi = np.interp(y_pred, [1, 6], [0, 500])
+    
+    # Calculate metrics
+    rmse = np.sqrt(mean_squared_error(true_aqi, pred_aqi))
+    r2 = r2_score(true_aqi, pred_aqi)
+    mse = mean_squared_error(true_aqi, pred_aqi)
+    mae = mean_absolute_error(true_aqi, pred_aqi)
+    
+    # Display header
+    fold_text = f"Fold {fold} - " if fold is not None else ""
+    print(f"\n{'='*60}")
+    print(f"{fold_text}{horizon} AQI Prediction Results")
+    print(f"{'='*60}")
+    
+    # Display metrics
+    print(f"Model Performance Metrics:")
+    print(f"  R² Score:     {r2:.4f}")
+    print(f"  RMSE:         {rmse:.2f}")
+    print(f"  MSE:          {mse:.2f}")
+    print(f"  MAE:          {mae:.2f}")
+    
+    # Display sample predictions (first 10)
+    print(f"\nSample Predictions (First 10):")
+    print(f"{'Index':<8} {'True AQI':<10} {'Pred AQI':<10} {'Error':<10}")
+    print(f"{'-'*40}")
+    
+    for i in range(min(10, len(true_aqi))):
+        error = abs(true_aqi[i] - pred_aqi[i])
+        print(f"{i+1:<8} {true_aqi[i]:<10.1f} {pred_aqi[i]:<10.1f} {error:<10.1f}")
+    
+    # Statistical summary
+    errors = np.abs(true_aqi - pred_aqi)
+    print(f"\nPrediction Error Statistics:")
+    print(f"  Mean Error:   {np.mean(errors):.2f}")
+    print(f"  Std Error:    {np.std(errors):.2f}")
+    print(f"  Max Error:    {np.max(errors):.2f}")
+    print(f"  Min Error:    {np.min(errors):.2f}")
+    
+    return {
+        'rmse': rmse,
+        'r2': r2,
+        'mse': mse,
+        'mae': mae,
+        'predictions': pred_aqi.tolist(),
+        'true_values': true_aqi.tolist()
+    }
 
 def train_aqi_model():
     try:
@@ -151,7 +203,14 @@ def train_aqi_model():
             )
         )
         
-        # 6. Time-series cross validation with fixed indexing
+        # Store results for summary
+        all_results = {}
+        
+        # 6. Time-series cross validation with enhanced display
+        print("\n" + "="*80)
+        print("CROSS-VALIDATION RESULTS")
+        print("="*80)
+        
         tscv = TimeSeriesSplit(n_splits=3)  # Reduced for stability
         for i, (train_idx, val_idx) in enumerate(tscv.split(X_train)):
             # Convert numpy arrays to pandas-compatible indices
@@ -171,55 +230,63 @@ def train_aqi_model():
                 model.fit(X_fold_train, y_fold_train)
                 preds = model.predict(X_fold_val)
                 
-                metrics = evaluate_model(y_fold_val, preds)
-                logging.info(
-                    f"Fold {i+1} {horizon} - "
-                    f"R²: {metrics['regression']['r2']:.2f} | "
-                    f"MAE: {metrics['regression']['mae']:.1f}"
+                # Display predictions and metrics
+                results = display_predictions_and_metrics(
+                    y_fold_val, preds, horizon, fold=i+1
                 )
+                fold_metrics[horizon] = results
+            
+            all_results[f'fold_{i+1}'] = fold_metrics
         
-        # 7. Final training and evaluation with detailed printing
-        results = []
+        # 7. Final training and evaluation with enhanced display
+        print("\n" + "="*80)
+        print("FINAL TEST SET RESULTS")
+        print("="*80)
         
+        final_results = {}
         for horizon in ['24h', '48h', '72h']:
             h_idx = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h'].index(f'aqi_{horizon}')
             
             model.fit(X_train, y_train.iloc[:, h_idx])
             test_preds = model.predict(X_test)
-            metrics = evaluate_model(y_test.iloc[:, h_idx], test_preds)
             
-            # Store results for printing
-            results.append({
-                'horizon': horizon,
-                'r2': metrics['regression']['r2'],
-                'rmse': metrics['regression']['rmse'],
-                'mae': metrics['regression']['mae'],
-                'accuracy': metrics['classification']['accuracy'],
-                'balanced_accuracy': metrics['classification']['balanced_accuracy']
-            })
+            # Display final test results
+            results = display_predictions_and_metrics(
+                y_test.iloc[:, h_idx], test_preds, horizon
+            )
+            final_results[horizon] = results
             
-            # Save model and metrics
+            # Save model and enhanced metrics
             joblib.dump(model, MODEL_DIR / f"aqi_{horizon}_model.pkl")
+            
+            # Save detailed metrics including predictions
+            detailed_metrics = evaluate_model(
+                y_test.iloc[:, h_idx], test_preds, return_continuous=True
+            )
+            detailed_metrics['display_results'] = results
+            
             with open(MODEL_DIR / f"aqi_{horizon}_metrics.json", 'w') as f:
-                json.dump(metrics, f, indent=2)
+                json.dump(detailed_metrics, f, indent=2)
         
-        # Print formatted results to ensure they appear in logs
-        print("\n=== FINAL MODEL EVALUATION ===")
-        print(f"{'Horizon':<8}{'R²':<8}{'RMSE':<8}{'MAE':<8}{'Accuracy':<10}{'Balanced Acc':<12}")
-        for r in results:
-            print(f"{r['horizon']:<8}"
-                  f"{r['r2']:.3f}{'':<2}"
-                  f"{r['rmse']:.1f}{'':<2}"
-                  f"{r['mae']:.1f}{'':<2}"
-                  f"{r['accuracy']:.3f}{'':<4}"
-                  f"{r['balanced_accuracy']:.3f}")
-        print("============================")
-
+        # Summary table
+        print("\n" + "="*80)
+        print("PERFORMANCE SUMMARY")
+        print("="*80)
+        print(f"{'Horizon':<10} {'R²':<8} {'RMSE':<8} {'MSE':<10} {'MAE':<8}")
+        print("-" * 50)
+        
+        for horizon in ['24h', '48h', '72h']:
+            r = final_results[horizon]
+            print(f"{horizon:<10} {r['r2']:<8.3f} {r['rmse']:<8.1f} {r['mse']:<10.1f} {r['mae']:<8.1f}")
+        
+        return all_results, final_results
+                
     except Exception as e:
         logging.error(f"Training failed: {str(e)}", exc_info=True)
         raise
 
-# Ensure the function is called when script is run directly
+# Add this function to run the training
 if __name__ == "__main__":
-    train_aqi_model()
-
+    cv_results, test_results = train_aqi_model()
+    print(f"\nTraining completed successfully!")
+    print(f"Results saved to {MODEL_DIR}")
