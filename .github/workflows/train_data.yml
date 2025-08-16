@@ -131,15 +131,6 @@ jobs:
               echo "✅ Metrics for $horizon available"
               # Extract key metrics for summary
               python -c "
-import json
-with open('$metrics_file', 'r') as f:
-    metrics = json.load(f)
-    r2 = metrics['regression']['r2']
-    rmse = metrics['regression']['rmse']
-    print(f'$horizon: R²={r2:.3f}, RMSE={rmse:.1f}')
-" 2>/dev/null || echo "Could not parse metrics for $horizon"
-            fi
-          done
           
       - name: Generate summary
         if: always()
