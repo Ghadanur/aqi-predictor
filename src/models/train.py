@@ -183,6 +183,11 @@ def train_aqi_model():
             X_train, X_test, y_train, y_test = stratified_time_split(
                 features, targets.iloc[:, 0]
             )
+            # Ensure y_train and y_test are DataFrames, not Series
+            if isinstance(y_train, pd.Series):
+                y_train = targets.loc[y_train.index]
+            if isinstance(y_test, pd.Series):
+                y_test = targets.loc[y_test.index]
         except ValueError as e:
             logging.warning(f"Could not create balanced split: {str(e)}")
             # Fallback to simple time split
@@ -219,13 +224,29 @@ def train_aqi_model():
             
             fold_metrics = {}
             for horizon in ['24h', '48h', '72h']:
-                h_idx = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h'].index(f'aqi_{horizon}')
+                # Get the correct column index for this horizon
+                horizon_columns = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h']
+                target_col = f'aqi_{horizon}'
+                
+                # Handle case where target_col might not exist or be named differently
+                if target_col in y_train.columns:
+                    target_series = y_train[target_col]
+                elif horizon in y_train.columns:
+                    target_series = y_train[horizon]
+                else:
+                    # Try to find by index
+                    try:
+                        h_idx = horizon_columns.index(target_col)
+                        target_series = y_train.iloc[:, h_idx]
+                    except (ValueError, IndexError):
+                        logging.warning(f"Could not find target column for {horizon}, skipping...")
+                        continue
                 
                 # Fixed indexing using .loc[]
                 X_fold_train = X_train.loc[train_idx_pd]
-                y_fold_train = y_train.loc[train_idx_pd, y_train.columns[h_idx]]
+                y_fold_train = target_series.loc[train_idx_pd]
                 X_fold_val = X_train.loc[val_idx_pd]
-                y_fold_val = y_train.loc[val_idx_pd, y_train.columns[h_idx]]
+                y_fold_val = target_series.loc[val_idx_pd]
                 
                 model.fit(X_fold_train, y_fold_train)
                 preds = model.predict(X_fold_val)
@@ -245,14 +266,33 @@ def train_aqi_model():
         
         final_results = {}
         for horizon in ['24h', '48h', '72h']:
-            h_idx = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h'].index(f'aqi_{horizon}')
+            # Get the correct target column for this horizon
+            horizon_columns = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h']
+            target_col = f'aqi_{horizon}'
             
-            model.fit(X_train, y_train.iloc[:, h_idx])
+            # Handle case where target_col might not exist or be named differently
+            if target_col in y_train.columns:
+                y_train_target = y_train[target_col]
+                y_test_target = y_test[target_col]
+            elif horizon in y_train.columns:
+                y_train_target = y_train[horizon]
+                y_test_target = y_test[horizon]
+            else:
+                # Try to find by index
+                try:
+                    h_idx = horizon_columns.index(target_col)
+                    y_train_target = y_train.iloc[:, h_idx]
+                    y_test_target = y_test.iloc[:, h_idx]
+                except (ValueError, IndexError):
+                    logging.error(f"Could not find target column for {horizon}, skipping...")
+                    continue
+            
+            model.fit(X_train, y_train_target)
             test_preds = model.predict(X_test)
             
             # Display final test results
             results = display_predictions_and_metrics(
-                y_test.iloc[:, h_idx], test_preds, horizon
+                y_test_target, test_preds, horizon
             )
             final_results[horizon] = results
             
@@ -261,7 +301,7 @@ def train_aqi_model():
             
             # Save detailed metrics including predictions
             detailed_metrics = evaluate_model(
-                y_test.iloc[:, h_idx], test_preds, return_continuous=True
+                y_test_target, test_preds, return_continuous=True
             )
             detailed_metrics['display_results'] = results
             
