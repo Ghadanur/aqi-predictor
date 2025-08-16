@@ -1,211 +1,43 @@
 name: AQI Training Pipeline (PKT)
-
 on:
   schedule:
-    - cron: "0 19 * * *"  # 00:00 PKT (7 PM UTC) - Fixed cron syntax
+    - cron: "0 19 * * *"  # 00:00 PKT (7 PM UTC)
   workflow_dispatch:
-    inputs:
-      lookback_days:
-        description: 'Number of days to look back for training data'
-        required: false
-        default: '90'
-        type: string
-      force_retrain:
-        description: 'Force model retraining even if data unchanged'
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 45  # Increased timeout for enhanced training
+    timeout-minutes: 30
     env:
       TZ: Asia/Karachi
       PYTHONPATH: ${{ github.workspace }}/src
-      LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '90' }}
-      
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        
+      - uses: actions/checkout@v4
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-          cache: 'pip'  # Cache pip dependencies
-          
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
           
-      - name: Create directories
-        run: |
-          mkdir -p src/models
-          mkdir -p logs
-          mkdir -p artifacts
-          
-      - name: Verify environment
-        run: |
-          echo "Pipeline started at: $(date +'%Y-%m-%d %H:%M:%S %Z')"
-          echo "Python version: $(python --version)"
-          echo "Working directory: $(pwd)"
-          echo "PYTHONPATH: $PYTHONPATH"
-          echo "Lookback days: $LOOKBACK_DAYS"
-          pip list | grep -E "(sklearn|pandas|numpy|hopsworks)"
-          
+      - name: Create model directory
+        run: mkdir -p src/models
+
       - name: Process data
-        id: process_data
         run: |
-          echo "Starting data processing..."
-          python -m src.features.process --lookback_days $LOOKBACK_DAYS 2>&1 | tee logs/processing.log
-          
-          # Check if processing was successful
-          if [ $? -eq 0 ]; then
-            echo "✅ Data processing completed successfully"
-            echo "process_success=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Data processing failed"
-            echo "process_success=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          
-          echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" > logs/timing.log
+          python -m src.features.process --lookback_days 90
+          echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" > timing.log
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-          
+
       - name: Train model
-        id: train_model
-        if: steps.process_data.outputs.process_success == 'true'
         run: |
-          echo "Starting model training with enhanced display..."
-          python -m src.models.train 2>&1 | tee logs/training.log
-          
-          # Check if training was successful
-          if [ $? -eq 0 ]; then
-            echo "✅ Model training completed successfully"
-            echo "train_success=true" >> $GITHUB_OUTPUT
-            
-            # Check if model files were created
-            model_count=$(find src/models -name "aqi_*_model.pkl" | wc -l)
-            echo "Models created: $model_count"
-            echo "model_count=$model_count" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Model training failed"
-            echo "train_success=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          
-          echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> logs/timing.log
+          python -m src.models.train
+          echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
         env:
-          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-          
-      - name: Validate models
-        if: steps.train_model.outputs.train_success == 'true'
-        run: |
-          echo "Validating trained models..."
-          
-          # Check for expected model files
-          expected_models=("aqi_24h_model.pkl" "aqi_48h_model.pkl" "aqi_72h_model.pkl")
-          missing_models=()
-          
-          for model in "${expected_models[@]}"; do
-            if [ ! -f "src/models/$model" ]; then
-              missing_models+=("$model")
-            else
-              size=$(stat -c%s "src/models/$model")
-              echo "✅ $model exists (${size} bytes)"
-            fi
-          done
-          
-          if [ ${#missing_models[@]} -gt 0 ]; then
-            echo "❌ Missing models: ${missing_models[*]}"
-            exit 1
-          fi
-          
-          # Check metrics files
-          for horizon in "24h" "48h" "72h"; do
-            metrics_file="src/models/aqi_${horizon}_metrics.json"
-            if [ -f "$metrics_file" ]; then
-              echo "✅ Metrics for $horizon available"
-              # Extract key metrics for summary
-              python -c "
-import json
-with open('$metrics_file', 'r') as f:
-    metrics = json.load(f)
-    r2 = metrics['regression']['r2']
-    rmse = metrics['regression']['rmse']
-    print(f'$horizon: R²={r2:.3f}, RMSE={rmse:.1f}')
-" 2>/dev/null || echo "Could not parse metrics for $horizon"
-            fi
-          done
-          
-      - name: Generate summary
-        if: always()
-        run: |
-          echo "=== PIPELINE SUMMARY ===" > logs/summary.log
-          echo "Execution Date: $(date +'%Y-%m-%d %H:%M:%S %Z')" >> logs/summary.log
-          echo "Lookback Days: $LOOKBACK_DAYS" >> logs/summary.log
-          echo "Process Success: ${{ steps.process_data.outputs.process_success }}" >> logs/summary.log
-          echo "Training Success: ${{ steps.train_model.outputs.train_success }}" >> logs/summary.log
-          echo "Models Created: ${{ steps.train_model.outputs.model_count }}" >> logs/summary.log
-          echo "" >> logs/summary.log
-          
-          # Add file sizes
-          echo "=== MODEL FILES ===" >> logs/summary.log
-          find src/models -name "*.pkl" -exec ls -lh {} \; >> logs/summary.log 2>/dev/null || echo "No model files found" >> logs/summary.log
-          echo "" >> logs/summary.log
-          
-          # Add log file sizes
-          echo "=== LOG FILES ===" >> logs/summary.log
-          ls -lh logs/ >> logs/summary.log 2>/dev/null || echo "No log files found" >> logs/summary.log
-          
-          cat logs/summary.log
-          
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: aqi-pipeline-artifacts-${{ github.run_number }}
-          path: |
-            logs/
-            src/models/*.pkl
-            src/models/*.json
-            src/models/aqi_training.log
-          retention-days: 30
-          
-      - name: Upload models separately
-        uses: actions/upload-artifact@v4
-        if: steps.train_model.outputs.train_success == 'true'
-        with:
-          name: aqi-models-${{ github.run_number }}
-          path: |
-            src/models/aqi_*_model.pkl
-            src/models/aqi_*_metrics.json
-          retention-days: 90  # Keep models longer
-          
-      - name: Notify on failure
-        if: failure()
-        run: |
-          echo "❌ Pipeline failed at step: ${{ job.status }}"
-          echo "Check the uploaded artifacts for detailed logs"
-          
-          # Create failure summary
-          echo "=== FAILURE DETAILS ===" > logs/failure.log
-          echo "Failed at: $(date +'%Y-%m-%d %H:%M:%S %Z')" >> logs/failure.log
-          echo "Job status: ${{ job.status }}" >> logs/failure.log
-          echo "Last successful step: ${{ steps.process_data.outcome }} (process) | ${{ steps.train_model.outcome }} (train)" >> logs/failure.log
-          
-          # Add recent log entries
-          echo "" >> logs/failure.log
-          echo "=== RECENT LOG ENTRIES ===" >> logs/failure.log
-          tail -20 logs/*.log >> logs/failure.log 2>/dev/null || echo "No recent logs available" >> logs/failure.log
-          
-      - name: Success notification
-        if: success()
-        run: |
-          echo "✅ AQI Training Pipeline completed successfully!"
-          echo "Models trained for: 24h, 48h, 72h forecasts"
-          echo "Training data span: $LOOKBACK_DAYS days"
-          echo "Artifacts uploaded with run number: ${{ github.run_number }}"
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}   
