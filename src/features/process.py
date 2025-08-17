@@ -44,7 +44,7 @@ class AQI3DayForecastProcessor:
         # 4. Prepare 3-day targets
         targets = self._create_3day_targets(clean_df)
         
-        return features.iloc[:-72], targets.iloc[:-72]  # Exclude last 72h for valid split
+        return features.iloc[:-72], targets.iloc[:-72],raw_df  # Exclude last 72h for valid split
 
     def _fetch_raw_data(self, lookback_days: int) -> pd.DataFrame:
         """Retrieve historical data from Hopsworks"""
@@ -136,6 +136,7 @@ if __name__ == "__main__":
     for col in targets.columns:
         print(f"\n{col}:")
         print(targets[col].value_counts().head())
+
 
 
 
