@@ -114,9 +114,9 @@ class AQI3DayForecastProcessor:
         return df.astype('float32').dropna()
 
     def _create_3day_targets(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Create multi-horizon targets up to 72 hours"""
+        """Create multi-horizon targets up to 72 hours - FIXED DATA LEAKAGE"""
         targets = pd.DataFrame({
-            'aqi_current': df['aqi'],
+            'aqi_current': df['aqi'].shift(-1),   # FIXED: predict next hour, not current
             'aqi_24h': df['aqi'].shift(-24),
             'aqi_48h': df['aqi'].shift(-48),
             'aqi_72h': df['aqi'].shift(-72)
