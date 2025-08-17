@@ -31,14 +31,14 @@ jobs:
 
       - name: Process data
         run: |
-          python -m src.process
+          python -m src.features.process
           echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" > timing.log
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
 
       - name: Train models
         run: |
-          python -m src.train
+          python -m src.models.train
           echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
           
       - name: Upload artifacts
