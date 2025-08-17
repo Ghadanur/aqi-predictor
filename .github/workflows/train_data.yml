@@ -1,163 +1,52 @@
 name: AQI Training Pipeline (PKT)
-
 on:
   schedule:
     - cron: "0 19 * * *"  # 00:00 PKT (7 PM UTC)
   workflow_dispatch:
-    inputs:
-      lookback_days:
-        description: 'Number of days to look back for training data'
-        required: false
-        default: '90'
-        type: string
-      force_retrain:
-        description: 'Force model retraining even if data unchanged'
-        required: false
-        default: false
-        type: boolean
-
-env:
-  TZ: Asia/Karachi
-  PYTHONPATH: ${{ github.workspace }}/src
-  MODEL_DIR: ${{ github.workspace }}/src/models
-  LOG_DIR: ${{ github.workspace }}/logs
 
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 60  # Increased timeout for complex models
-    container:
-      image: python:3.9-slim
-      options: --shm-size=1gb  # Required for some ML models
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Karachi
+      PYTHONPATH: ${{ github.workspace }}/src
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        
+      - uses: actions/checkout@v4
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
-          
-      - name: Install system dependencies
+
+      - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            build-essential libgomp1
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pycaret catboost xgboost lightgbm
           
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt --no-cache-dir
-          pip install pycaret==3.0.4  # Pinned version for reproducibility
-          
-      - name: Create directories
-        run: |
-          mkdir -p $MODEL_DIR $LOG_DIR
-          chmod -R 777 $MODEL_DIR $LOG_DIR  # Ensure write permissions
-          
-      - name: Verify environment
-        run: |
-          echo "Pipeline started at: $(date +'%Y-%m-%d %H:%M:%S %Z')"
-          echo "Python version: $(python --version)"
-          echo "Working directory: $(pwd)"
-          echo "PYTHONPATH: $PYTHONPATH"
-          echo "Lookback days: ${{ inputs.lookback_days || '90' }}"
-          pip list --format=columns | grep -E "(scikit-learn|pandas|numpy|hopsworks|pycaret)"
-          
+      - name: Create model directory
+        run: mkdir -p src/models
+
       - name: Process data
-        id: process_data
         run: |
-          echo "Starting data processing..."
-          python -m src.features.process \
-            --lookback_days ${{ inputs.lookback_days || '90' }} \
-            2>&1 | tee $LOG_DIR/processing_${{ github.run_number }}.log
-            
-          if grep -q "ERROR" $LOG_DIR/processing_${{ github.run_number }}.log; then
-            echo "❌ Errors detected in processing"
-            echo "process_success=false" >> $GITHUB_OUTPUT
-            exit 1
-          else
-            echo "✅ Data processing completed"
-            echo "process_success=true" >> $GITHUB_OUTPUT
-          fi
+          python -m src.process
+          echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" > timing.log
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-          
+
       - name: Train models
-        id: train_model
-        if: steps.process_data.outputs.process_success == 'true'
         run: |
-          echo "Starting model training..."
+          python -m src.train
+          echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
           
-          # Add GPU support if available
-          nvidia-smi || echo "No GPU detected, using CPU"
-          
-          python -m src.models.train \
-            --horizons 24h 48h 72h \
-            --lookback ${{ inputs.lookback_days || '90' }} \
-            2>&1 | tee $LOG_DIR/training_${{ github.run_number }}.log
-            
-          # Verify model outputs
-          MODEL_COUNT=$(find $MODEL_DIR -name "aqi_*_model.pkl" | wc -l)
-          if [ "$MODEL_COUNT" -lt 3 ]; then
-            echo "❌ Insufficient models created: $MODEL_COUNT"
-            echo "train_success=false" >> $GITHUB_OUTPUT
-            exit 1
-          else
-            echo "✅ Models created successfully"
-            echo "train_success=true" >> $GITHUB_OUTPUT
-            echo "model_count=$MODEL_COUNT" >> $GITHUB_OUTPUT
-          fi
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: training-artifacts
+          path: |
+            src/models/*.pkl
+            timing.log
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-          TF_CPP_MIN_LOG_LEVEL: '2'  # Reduce TensorFlow logging
-          
-      - name: Model validation
-        if: steps.train_model.outputs.train_success == 'true'
-        run: |
-          echo "Validating models..."
-          python -c "
-          import pickle
-          import os
-          from pathlib import Path
-          
-          model_dir = Path('$MODEL_DIR')
-          required_models = ['aqi_24h_model.pkl', 'aqi_48h_model.pkl', 'aqi_72h_model.pkl']
-          
-          for model in required_models:
-              model_path = model_dir / model
-              if not model_path.exists():
-                  raise FileNotFoundError(f'Missing model: {model}')
-              
-              try:
-                  with open(model_path, 'rb') as f:
-                      pickle.load(f)
-                  print(f'✅ {model} is valid')
-              except Exception as e:
-                  raise ValueError(f'Invalid model file {model}: {str(e)}')
-          "
-          
-      - name: Generate metrics report
-        if: steps.train_model.outputs.train_success == 'true'
-        run: |
-          python -c "
-          import json
-          from pathlib import Path
-          
-          metrics = {}
-          model_dir = Path('$MODEL_DIR')
-          
-          for horizon in ['24h', '48h', '72h']:
-              try:
-                  with open(model_dir / f'aqi_{horizon}_metrics.json') as f:
-                      metrics[horizon] = json.load(f)
-              except Exception as e:
-                  metrics[horizon] = {'error': str(e)}
-          
-          with open('$LOG_DIR/metrics_summary.json', 'w') as f:
-              json.dump(metrics, f, indent=2)
-          "
-          
-     
