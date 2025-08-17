@@ -119,3 +119,8 @@ class AQI3DayForecastProcessor:
             'aqi_72h': df['aqi'].shift(-72)
         })
         return targets.dropna()
+    if __name__ == "__main__":
+        processor = AQI3DayForecastProcessor()
+        features, targets = processor.get_3day_forecast_data()
+        print(features.head())
+        print(targets.head())
