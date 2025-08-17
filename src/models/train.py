@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 from pycaret.regression import *
-from process import AQI3DayForecastProcessor
+from features.process import AQI3DayForecastProcessor
 import logging
 from sklearn.model_selection import TimeSeriesSplit
 import warnings
@@ -116,3 +116,4 @@ if __name__ == "__main__":
         print(f"  Test MAE: {res['test_mae']:.2f}")
         print("  Top 5 Features:")
         print(res['feature_importance'].head(5).to_string())
+
