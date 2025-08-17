@@ -25,12 +25,13 @@ class AQI3DayForecastProcessor:
             logger.error(f"Hopsworks connection failed: {str(e)}")
             raise
 
-    def get_3day_forecast_data(self, lookback_days: int = 90) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def get_3day_forecast_data(self, lookback_days: int = 90) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
         Retrieve and process data for 3-day forecasting
         Returns: 
             - features: DataFrame with engineered features
             - targets: DataFrame with 3-day horizon targets
+            - raw_df: Original raw data for debugging
         """
         # 1. Fetch 3 months of historical data
         raw_df = self._fetch_raw_data(lookback_days)
@@ -44,7 +45,7 @@ class AQI3DayForecastProcessor:
         # 4. Prepare 3-day targets
         targets = self._create_3day_targets(clean_df)
         
-        return features.iloc[:-72], targets.iloc[:-72],raw_df  # Exclude last 72h for valid split
+        return features.iloc[:-72], targets.iloc[:-72], raw_df  # Exclude last 72h for valid split
 
     def _fetch_raw_data(self, lookback_days: int) -> pd.DataFrame:
         """Retrieve historical data from Hopsworks"""
@@ -80,7 +81,7 @@ class AQI3DayForecastProcessor:
 
     def _create_3day_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Create features optimized for 72-hour forecasting"""
-    # Convert timestamp to numerical features first
+        # Convert timestamp to numerical features first
         df['hour_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.hour/24)
         df['hour_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.hour/24)
         df['day_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.dayofyear/365)
@@ -90,23 +91,25 @@ class AQI3DayForecastProcessor:
         df['pm_ratio'] = (df['pm2_5'] / df['pm10']).astype('float32')  # Composition ratio
         df['pm_interaction'] = (df['pm2_5'] * df['pm10']).astype('float32')  # Interaction term
         df['pm2_5_change_24h'] = df['pm2_5'].diff(24).astype('float32')  # Daily delta    
-    # Lag features (3 days = 72 hours)
+        
+        # Lag features (3 days = 72 hours)
         for lag in [1, 6, 12, 24, 48, 72]:
             df[f'aqi_lag_{lag}h'] = df['aqi'].shift(lag).astype('float32')
             df[f'pm2_5_lag_{lag}h'] = df['pm2_5'].shift(lag).astype('float32')
             if lag % 24 == 0:  # Only daily lags for PM10
                 df[f'pm10_lag_{lag}h'] = df['pm10'].shift(lag).astype('float32')   
-    # Rolling statistics
+        
+        # Rolling statistics
         # 4. Simplified CO features (low importance)
         df['co_24h_avg'] = df['co'].rolling(24).mean().astype('float32')
         df['aqi_72h_avg'] = df['aqi'].rolling(72).mean().astype('float32')
         df['pm2_5_72h_max'] = df['pm2_5'].rolling(72).max().astype('float32')
     
-    # Weather trends
+        # Weather trends
         df['temp_24h_change'] = df['temperature'].diff(24).astype('float32')
         df['humidity_24h_change'] = df['humidity'].diff(24).astype('float32')
     
-    # Drop original timestamp and ensure float dtypes
+        # Drop original timestamp and ensure float dtypes
         df = df.drop('timestamp', axis=1)
         return df.astype('float32').dropna()
 
@@ -119,9 +122,15 @@ class AQI3DayForecastProcessor:
             'aqi_72h': df['aqi'].shift(-72)
         })
         return targets.dropna()
+
 if __name__ == "__main__":
     processor = AQI3DayForecastProcessor()
-    features, targets = processor.get_3day_forecast_data()
+    features, targets, raw_df = processor.get_3day_forecast_data()  # Fixed: unpack 3 values
+    
+    print("\n=== Raw Data Summary ===")
+    print(f"Shape: {raw_df.shape}")
+    print(f"Date range: {raw_df['timestamp'].min()} to {raw_df['timestamp'].max()}")
+    print(f"Columns: {list(raw_df.columns)}")
     
     print("\n=== Features Summary ===")
     print(f"Shape: {features.shape}")
@@ -130,12 +139,8 @@ if __name__ == "__main__":
     print("\n=== Targets Summary ===")
     print(f"Shape: {targets.shape}")
     print(targets.describe())
-    print(f"raw_df:{raw_df}")
     
     print("\n=== Target Value Counts ===")
     for col in targets.columns:
         print(f"\n{col}:")
         print(targets[col].value_counts().head())
-
-
-
