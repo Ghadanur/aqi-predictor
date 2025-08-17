@@ -122,6 +122,18 @@ class AQI3DayForecastProcessor:
 if __name__ == "__main__":
     processor = AQI3DayForecastProcessor()
     features, targets = processor.get_3day_forecast_data()
-    print(features.head())
-    print(targets.head())
+    
+    print("\n=== Features Summary ===")
+    print(f"Shape: {features.shape}")
+    print(features.describe())
+    
+    print("\n=== Targets Summary ===")
+    print(f"Shape: {targets.shape}")
+    print(targets.describe())
+    
+    print("\n=== Target Value Counts ===")
+    for col in targets.columns:
+        print(f"\n{col}:")
+        print(targets[col].value_counts().head())
+
 
