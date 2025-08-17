@@ -47,7 +47,7 @@ class AQIForecastTrainer:
     # Optional: Log raw data info for debugging
         logger.info(f"Raw data shape: {raw_df.shape}")
         if 'timestamp' in raw_df.columns:
-        logger.info(f"Date range: {raw_df['timestamp'].min()} to {raw_df['timestamp'].max()}")
+            logger.info(f"Date range: {raw_df['timestamp'].min()} to {raw_df['timestamp'].max()}")
     
         self.datasets = {}
         for horizon in self.target_cols:
@@ -157,6 +157,7 @@ if __name__ == "__main__":
                 print(f"  Test MAE: {res['test_mae']:.2f}")
                 print("  Top Features:")
                 print(res['feature_importance'].head(3).to_string())
+
 
 
 
