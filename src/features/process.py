@@ -130,10 +130,12 @@ if __name__ == "__main__":
     print("\n=== Targets Summary ===")
     print(f"Shape: {targets.shape}")
     print(targets.describe())
+    print(f"raw_df:{raw_df}")
     
     print("\n=== Target Value Counts ===")
     for col in targets.columns:
         print(f"\n{col}:")
         print(targets[col].value_counts().head())
+
 
 
