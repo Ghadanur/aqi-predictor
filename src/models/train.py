@@ -56,7 +56,7 @@ class AQIForecastTrainer:
                 remove_multicollinearity=True,
                 feature_selection=True,
                 session_id=42,
-                use_gpu=False  # Added for completeness
+                use_gpu=False,  # Added for completeness
                 data_split_shuffle=False,  # Must be False for time series
                 fold_shuffle=False
             )
@@ -118,4 +118,5 @@ if __name__ == "__main__":
         print(f"  Test MAE: {res['test_mae']:.2f}")
         print("  Top 5 Features:")
         print(res['feature_importance'].head(5).to_string())
+
 
