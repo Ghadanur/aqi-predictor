@@ -23,11 +23,11 @@ class AQIForecastTrainer:
     # Fixed: AQI data typically has limited discrete values (e.g., 1-6 scale)
     # Changed from 5 to 2 minimum unique values
         if df['target'].nunique() < 2:
-           logger.error("Target has insufficient variability (less than 2 unique values)")
+            logger.error("Target has insufficient variability (less than 2 unique values)")
         return False
     
         if df.isnull().sum().sum() > 0:
-           logger.error("Data contains null values")
+            logger.error("Data contains null values")
         return False
         # Additional check: ensure target has reasonable distribution
         target_counts = df['target'].value_counts()
@@ -157,6 +157,7 @@ if __name__ == "__main__":
                 print(f"  Test MAE: {res['test_mae']:.2f}")
                 print("  Top Features:")
                 print(res['feature_importance'].head(3).to_string())
+
 
 
 
