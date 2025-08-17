@@ -8,5 +8,7 @@ python-dotenv==0.21.0
 scikit-learn>=1.0.0
 pyarrow==14.0.1
 shap>=0.44.0
+pycaret>=3.0.0
 imbalanced-learn>=0.10.1
 joblib>=1.0.0
+
