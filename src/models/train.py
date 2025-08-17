@@ -42,19 +42,25 @@ class AQIForecastTrainer:
         
     def prepare_data(self):
         """Get and validate processed features and targets"""
-        features, targets = self.processor.get_3day_forecast_data()
-        
+        features, targets, raw_df = self.processor.get_3day_forecast_data()  # Fixed: unpack 3 values
+    
+    # Optional: Log raw data info for debugging
+        logger.info(f"Raw data shape: {raw_df.shape}")
+        if 'timestamp' in raw_df.columns:
+        logger.info(f"Date range: {raw_df['timestamp'].min()} to {raw_df['timestamp'].max()}")
+    
         self.datasets = {}
         for horizon in self.target_cols:
             df = features.copy()
             df['target'] = targets[horizon].astype('float32')
             df = df.dropna()
-            
+        
             if not self._validate_data(df):
-                logger.error(f"Skipping {horizon} due to data quality issues")
-                continue
-                
-            self.datasets[horizon] = df
+            logger.error(f"Skipping {horizon} due to data quality issues")
+               continue
+            
+        self.datasets[horizon] = df
+        logger.info(f"Dataset prepared for {horizon}: {df.shape} samples")
             
     def time_series_split(self, df: pd.DataFrame, test_size: float = 0.2):
         """Custom time-series split"""
@@ -151,5 +157,6 @@ if __name__ == "__main__":
                 print(f"  Test MAE: {res['test_mae']:.2f}")
                 print("  Top Features:")
                 print(res['feature_importance'].head(3).to_string())
+
 
 
