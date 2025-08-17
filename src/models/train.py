@@ -65,11 +65,7 @@ class AQIForecastTrainer:
             best_model = compare_models(
                 sort='MAE',
                 include=[
-                    'lr', 'ridge', 'lasso', 'en', 
-                    'br', 'omp', 'knn', 'dt', 
-                    'rf', 'et', 'ada', 'gbr', 
-                    'xgboost', 'lightgbm', 'catboost'
-                ],
+                    'lr', 'rf', 'xgboost', 'lightgbm', 'catboost'],
                 n_select=3,
                 verbose=False  # Added to reduce output
             )
@@ -118,5 +114,6 @@ if __name__ == "__main__":
         print(f"  Test MAE: {res['test_mae']:.2f}")
         print("  Top 5 Features:")
         print(res['feature_importance'].head(5).to_string())
+
 
 
