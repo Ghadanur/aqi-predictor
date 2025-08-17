@@ -42,7 +42,7 @@ jobs:
           echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
           
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: training-artifacts
           path: |
