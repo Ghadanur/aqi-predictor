@@ -54,7 +54,6 @@ class AQIForecastTrainer:
                 normalize=True,
                 transformation=True,
                 remove_multicollinearity=True,
-                feature_interaction=False,  # Alternative to some removed parameters
                 feature_ratio=False, 
                 feature_selection=True,
                 session_id=42
@@ -116,6 +115,7 @@ if __name__ == "__main__":
         print(f"  Test MAE: {res['test_mae']:.2f}")
         print("  Top 5 Features:")
         print(res['feature_importance'].head(5).to_string())
+
 
 
 
