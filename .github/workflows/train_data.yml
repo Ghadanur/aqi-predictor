@@ -160,37 +160,4 @@ jobs:
               json.dump(metrics, f, indent=2)
           "
           
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: aqi-pipeline-${{ github.run_number }}
-          path: |
-            $LOG_DIR/*
-            $MODEL_DIR/*
-          retention-days: 30
-          
-      - name: Archive models
-        if: steps.train_model.outputs.train_success == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: aqi-models-${{ github.run_id }}
-          path: $MODEL_DIR/*.pkl
-          retention-days: 90
-          compression-level: 9
-          
-      - name: Slack notification
-        if: always()
-        uses: slackapi/slack-github-action@v1.24.0
-        with:
-          channel-id: ${{ secrets.SLACK_CHANNEL }}
-          slack-message: |
-            ${{ job.status }}: AQI Training Pipeline (${{ github.run_number }})
-            *Duration*: ${{ job.steps.*.conclusion && formatDuration(job.steps.*.conclusion) }}
-            *Results*:
-            - Data: ${{ steps.process_data.outcome }}
-            - Training: ${{ steps.train_model.outcome }}
-            - Models: ${{ steps.train_model.outputs.model_count || 0 }}
-            View run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+     
