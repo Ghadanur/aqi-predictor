@@ -43,20 +43,20 @@ class AQIForecastTrainer:
             # Time-series split
             train, test = self.time_series_split(data)
             
-            # PyCaret setup
+            # PyCaret setup - updated for modern versions
             exp = setup(
                 data=train,
                 target='target',
                 train_size=0.8,
-                fold_strategy=TimeSeriesSplit(n_splits=3),
+                fold_strategy="timeseries",  # Changed from TimeSeriesSplit object
                 fold=3,
                 verbose=False,
                 normalize=True,
                 transformation=True,
                 remove_multicollinearity=True,
-                feature_ratio=False, 
                 feature_selection=True,
-                session_id=42
+                session_id=42,
+                use_gpu=False  # Added for completeness
             )
             
             # Compare models and select best based on MAE
@@ -68,7 +68,8 @@ class AQIForecastTrainer:
                     'rf', 'et', 'ada', 'gbr', 
                     'xgboost', 'lightgbm', 'catboost'
                 ],
-                n_select=3
+                n_select=3,
+                verbose=False  # Added to reduce output
             )
             
             # Evaluate on test set
@@ -115,7 +116,3 @@ if __name__ == "__main__":
         print(f"  Test MAE: {res['test_mae']:.2f}")
         print("  Top 5 Features:")
         print(res['feature_importance'].head(5).to_string())
-
-
-
-
