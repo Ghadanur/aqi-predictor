@@ -50,7 +50,6 @@ class AQIForecastTrainer:
                 train_size=0.8,
                 fold_strategy=TimeSeriesSplit(n_splits=3),
                 fold=3,
-                silent=True,
                 verbose=False,
                 normalize=True,
                 transformation=True,
@@ -116,4 +115,5 @@ if __name__ == "__main__":
         print(f"  Test MAE: {res['test_mae']:.2f}")
         print("  Top 5 Features:")
         print(res['feature_importance'].head(5).to_string())
+
 
