@@ -56,7 +56,7 @@ class AQIForecastTrainer:
             df = df.dropna()
         
             if not self._validate_data(df):
-            logger.error(f"Skipping {horizon} due to data quality issues")
+               logger.error(f"Skipping {horizon} due to data quality issues")
                continue
             
         self.datasets[horizon] = df
@@ -157,6 +157,7 @@ if __name__ == "__main__":
                 print(f"  Test MAE: {res['test_mae']:.2f}")
                 print("  Top Features:")
                 print(res['feature_importance'].head(3).to_string())
+
 
 
 
