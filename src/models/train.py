@@ -1,232 +1,209 @@
-# src/train.py
+# src/production_predictor.py
 import pandas as pd
 import numpy as np
-from pycaret.regression import *
-from features.process import AQI3DayForecastProcessor
-import logging
-import warnings
-warnings.filterwarnings('ignore')
+from collections import deque
+from datetime import datetime, timedelta
+import json
+import os
 
-logger = logging.getLogger(__name__)
-
-class AQIForecastTrainer:
-    def __init__(self):
-        self.processor = AQI3DayForecastProcessor()
-        self.target_cols = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h']
+class ProductionAQIPredictor(RealTimeAQIPredictor):
+    """Enhanced version that maintains recent data buffer for better predictions"""
+    
+    def __init__(self, models_dir: str = "models", buffer_size: int = 168):  # 1 week of hourly data
+        super().__init__(models_dir)
+        self.buffer_size = buffer_size
+        self.data_buffer = deque(maxlen=buffer_size)
+        self.buffer_file = "recent_data_buffer.json"
         
-    def _validate_data(self, df: pd.DataFrame) -> bool:
-        """Validate data quality before training"""
-        if len(df) < 100:
-            logger.error(f"Insufficient data points ({len(df)} < 100)")
-            return False
+        # Load existing buffer if available
+        self.load_buffer()
+    
+    def add_data_point(self, data_point: Dict[str, float]):
+        """Add new data point to the rolling buffer"""
+        data_point['timestamp'] = data_point.get('timestamp', datetime.now().isoformat())
+        self.data_buffer.append(data_point)
+        self.save_buffer()
         
-        # Fixed: AQI data typically has limited discrete values (e.g., 1-6 scale)
-        # Changed from 5 to 2 minimum unique values
-        unique_targets = df['target'].nunique()
-        if unique_targets < 2:
-            logger.error(f"Target has insufficient variability ({unique_targets} unique values)")
-            return False
+    def predict_with_buffer(self, current_data: Dict[str, float]) -> Dict[str, Dict]:
+        """Enhanced prediction using recent data buffer"""
+        # Add current data to buffer
+        self.add_data_point(current_data.copy())
         
-        null_count = df.isnull().sum().sum()
-        if null_count > 0:
-            logger.error(f"Data contains {null_count} null values")
-            return False
-            
-        # Additional check: ensure target has reasonable distribution
-        target_counts = df['target'].value_counts()
-        min_class_size = len(df) * 0.05  # At least 5% per class
-        if (target_counts < min_class_size).any():
-            logger.warning(f"Some target classes have very few samples: {target_counts.to_dict()}")
-            # Don't fail, just warn - small classes are common in AQI data
+        # Create enhanced features using buffer
+        features = self._create_enhanced_features(current_data)
         
-        logger.info(f"Data validation passed: {len(df)} samples, {unique_targets} unique targets")
-        logger.info(f"Target distribution: {target_counts.to_dict()}")   
-        return True
-        
-    def prepare_data(self):
-        """Get and validate processed features and targets"""
-        features, targets, raw_df = self.processor.get_3day_forecast_data()  # Fixed: unpack 3 values
-        
-        # Optional: Log raw data info for debugging
-        logger.info(f"Raw data shape: {raw_df.shape}")
-        if 'timestamp' in raw_df.columns:
-            logger.info(f"Date range: {raw_df['timestamp'].min()} to {raw_df['timestamp'].max()}")
-        
-        self.datasets = {}
+        # Make predictions (same as before but with better features)
+        predictions = {}
         for horizon in self.target_cols:
-            df = features.copy()
-            df['target'] = targets[horizon].astype('float32')
-            df = df.dropna()
-            
-            if not self._validate_data(df):
-                logger.error(f"Skipping {horizon} due to data quality issues")
-                continue
-                
-            self.datasets[horizon] = df
-            logger.info(f"Dataset prepared for {horizon}: {df.shape} samples")
-            
-    def time_series_split(self, df: pd.DataFrame, test_size: float = 0.2):
-        """Custom time-series split"""
-        n_test = int(len(df) * test_size)
-        return df.iloc[:-n_test], df.iloc[-n_test:]
-    
-    def train_models(self):
-        """Robust training with fallback logic"""
-        self.results = {}
+            if horizon in self.models:
+                try:
+                    pred_value = self.models[horizon].predict([features])[0]
+                    predictions[horizon] = {
+                        'value': float(pred_value),
+                        'horizon': horizon.replace('aqi_', '').replace('current', '1h'),
+                        'confidence': self._enhanced_confidence(horizon, len(self.data_buffer)),
+                        'timestamp': self._get_prediction_timestamp(horizon, current_data.get('timestamp'))
+                    }
+                except Exception as e:
+                    predictions[horizon] = {
+                        'value': None,
+                        'error': str(e),
+                        'horizon': horizon.replace('aqi_', '').replace('current', '1h')
+                    }
         
-        for horizon, data in self.datasets.items():
-            logger.info(f"\n{'='*50}\nTraining for target: {horizon}\n{'='*50}")
-            
-            try:
-                train, test = self.time_series_split(data)
-                
-                # Minimal PyCaret setup
-                exp = setup(
-                    data=train,
-                    target='target',
-                    train_size=0.8,
-                    fold_strategy="timeseries",
-                    fold=3,
-                    verbose=False,
-                    data_split_shuffle=False,
-                    fold_shuffle=False,
-                    normalize=True,
-                    transformation=False,
-                    feature_selection=False,
-                    session_id=42
-                )
-                
-                # First try LightGBM directly (most likely to work)
-                try:
-                    lgbm = create_model('lightgbm', verbose=False)
-                    tuned_lgbm = tune_model(lgbm, optimize='MAE', verbose=False)
-                    best_model = finalize_model(tuned_lgbm)
-                except Exception as e:
-                    # Fallback to simple linear regression
-                    logger.warning(f"LightGBM failed ({str(e)}), trying linear regression")
-                    lr = create_model('lr', verbose=False)
-                    best_model = finalize_model(lr)
-                
-                # Evaluate - Fixed the Label column issue
-                try:
-                    test_pred = predict_model(best_model, data=test)
-                    # Check if 'prediction_label' or 'Label' exists
-                    pred_col = 'prediction_label' if 'prediction_label' in test_pred.columns else 'Label'
-                    test_mae = np.mean(np.abs(test_pred['target'] - test_pred[pred_col]))
-                except Exception as e:
-                    logger.warning(f"Evaluation failed ({str(e)}), using cross-validation score")
-                    # Fallback: use the model's built-in evaluation
-                    test_mae = evaluate_model(best_model, verbose=False)['MAE'].iloc[0]
-                
-                # Get feature importance properly - IMPROVED VERSION
-                try:
-                    # Get the actual model from the pipeline
-                    if hasattr(best_model, 'named_steps'):
-                        # It's a Pipeline, get the actual model
-                        actual_model = best_model.named_steps[list(best_model.named_steps.keys())[-1]]
-                    else:
-                        actual_model = best_model
-                    
-                    # Try multiple methods to get feature importance
-                    if hasattr(actual_model, 'feature_importances_'):
-                        # Direct access for tree-based models
-                        feature_names = train.drop('target', axis=1).columns
-                        importances = actual_model.feature_importances_
-                        feature_importance = pd.DataFrame({
-                            'Feature': feature_names,
-                            'Importance': importances
-                        }).sort_values('Importance', ascending=False)
-                    elif hasattr(actual_model, 'coef_'):
-                        # For linear models
-                        feature_names = train.drop('target', axis=1).columns
-                        importances = np.abs(actual_model.coef_).flatten()
-                        feature_importance = pd.DataFrame({
-                            'Feature': feature_names,
-                            'Importance': importances
-                        }).sort_values('Importance', ascending=False)
-                    else:
-                        # Try PyCaret's built-in method
-                        try:
-                            feature_importance = interpret_model(best_model, plot='feature', verbose=False)
-                            if feature_importance is None or feature_importance.empty:
-                                raise Exception("No feature importance returned")
-                        except:
-                            # Create dummy importance
-                            feature_names = train.drop('target', axis=1).columns
-                            feature_importance = pd.DataFrame({
-                                'Feature': feature_names[:10],  # Top 10 features
-                                'Importance': np.random.random(min(10, len(feature_names)))
-                            }).sort_values('Importance', ascending=False)
-                            logger.warning("Using random feature importance as fallback")
-                            
-                except Exception as e:
-                    logger.warning(f"Could not extract feature importance: {str(e)}")
-                    feature_importance = pd.DataFrame({
-                        'Feature': ['Extraction failed'], 
-                        'Importance': [0]
-                    })
-                
-                self.results[horizon] = {
-                    'best_model': best_model,
-                    'test_mae': test_mae,
-                    'feature_importance': feature_importance
-                }
-                
-                logger.info(f"Successfully trained model for {horizon} - MAE: {test_mae:.3f}")
-                logger.info(f"Top 3 features: {list(feature_importance['Feature'].head(3))}")
-                
-            except Exception as e:
-                logger.error(f"Failed for {horizon}: {str(e)}")
-                import traceback
-                logger.error(f"Full traceback: {traceback.format_exc()}")
-                self.results[horizon] = {
-                    'error': str(e),
-                    'test_mae': None
-                }
-                
-        return self.results
+        return predictions
     
-    def save_models(self):
-        """Save trained models with validation"""
-        import joblib
-        import os
+    def _create_enhanced_features(self, current_data: Dict[str, float]) -> List[float]:
+        """Create features using actual recent data when available"""
+        if len(self.data_buffer) < 2:
+            # Fallback to approximation if no buffer
+            return self._create_realtime_features(current_data)
         
-        os.makedirs('models', exist_ok=True)
-        for horizon, result in self.results.items():
-            if 'best_model' in result:
-                try:
-                    joblib.dump(result['best_model'], f'models/{horizon}_model.pkl')
-                    logger.info(f"Saved model for {horizon}")
-                except Exception as e:
-                    logger.error(f"Failed to save model for {horizon}: {str(e)}")
+        # Convert buffer to DataFrame for easier processing
+        df = pd.DataFrame(list(self.data_buffer))
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df = df.sort_values('timestamp')
+        
+        features = []
+        
+        # Current timestamp
+        dt = pd.to_datetime(current_data.get('timestamp', datetime.now()))
+        
+        # Base features
+        base_features = ['aqi', 'pm2_5', 'pm10', 'co', 'so2', 'no2', 'o3', 'temperature', 'humidity']
+        for feature in base_features:
+            features.append(float(current_data.get(feature, 0)))
+        
+        # Time features
+        features.append(np.sin(2 * np.pi * dt.hour / 24))
+        features.append(np.cos(2 * np.pi * dt.hour / 24))
+        features.append(np.sin(2 * np.pi * dt.dayofyear / 365))
+        features.append(np.cos(2 * np.pi * dt.dayofyear / 365))
+        
+        # PM interaction features
+        pm2_5 = current_data.get('pm2_5', 0)
+        pm10 = current_data.get('pm10', 0)
+        features.append(pm2_5 / max(pm10, 0.1))
+        features.append(pm2_5 * pm10)
+        
+        # Real lag features using buffer data
+        for lag in [1, 6, 12, 24, 48, 72]:
+            lag_time = dt - timedelta(hours=lag)
+            
+            # Find closest data point to lag time
+            if len(df) > 0:
+                time_diffs = abs(df['timestamp'] - lag_time)
+                closest_idx = time_diffs.idxmin()
+                closest_row = df.loc[closest_idx]
+                
+                features.append(float(closest_row.get('aqi', current_data.get('aqi', 0))))
+                features.append(float(closest_row.get('pm2_5', current_data.get('pm2_5', 0))))
+                
+                if lag % 24 == 0:
+                    features.append(float(closest_row.get('pm10', current_data.get('pm10', 0))))
             else:
-                logger.warning(f"No model saved for {horizon} due to previous errors")
+                # Fallback to current values
+                features.append(current_data.get('aqi', 0))
+                features.append(current_data.get('pm2_5', 0))
+                if lag % 24 == 0:
+                    features.append(current_data.get('pm10', 0))
+        
+        # Calculate real changes and rolling stats where possible
+        if len(df) >= 24:  # At least 24 hours of data
+            features.append(current_data.get('pm2_5', 0) - df.iloc[-24]['pm2_5'])  # 24h change
+            features.append(df['co'].tail(24).mean())  # 24h CO average
+        else:
+            features.append(0.0)  # pm2_5_change_24h
+            features.append(current_data.get('co', 0))  # co_24h_avg
+        
+        if len(df) >= 72:  # At least 72 hours of data
+            features.append(df['aqi'].tail(72).mean())  # 72h AQI average
+            features.append(df['pm2_5'].tail(72).max())  # 72h PM2.5 max
+        else:
+            features.append(current_data.get('aqi', 0))  # aqi_72h_avg
+            features.append(current_data.get('pm2_5', 0))  # pm2_5_72h_max
+        
+        # Temperature and humidity changes
+        if len(df) >= 24:
+            features.append(current_data.get('temperature', 0) - df.iloc[-24]['temperature'])
+            features.append(current_data.get('humidity', 0) - df.iloc[-24]['humidity'])
+        else:
+            features.append(0.0)
+            features.append(0.0)
+        
+        # Ensure correct length
+        while len(features) < 39:
+            features.append(0.0)
+        
+        return features[:39]
+    
+    def _enhanced_confidence(self, horizon: str, buffer_length: int) -> str:
+        """Enhanced confidence based on buffer size"""
+        if buffer_length >= 72:  # 3+ days of data
+            confidence_map = {
+                'aqi_current': 'Very High',
+                'aqi_24h': 'High', 
+                'aqi_48h': 'Medium',
+                'aqi_72h': 'Medium'
+            }
+        elif buffer_length >= 24:  # 1+ day of data
+            confidence_map = {
+                'aqi_current': 'High',
+                'aqi_24h': 'Medium',
+                'aqi_48h': 'Low',
+                'aqi_72h': 'Low'
+            }
+        else:  # Limited data
+            confidence_map = {
+                'aqi_current': 'Medium',
+                'aqi_24h': 'Low',
+                'aqi_48h': 'Very Low',
+                'aqi_72h': 'Very Low'
+            }
+        
+        return confidence_map.get(horizon, 'Low')
+    
+    def save_buffer(self):
+        """Save buffer to file for persistence"""
+        try:
+            with open(self.buffer_file, 'w') as f:
+                json.dump(list(self.data_buffer), f, default=str)
+        except Exception as e:
+            logger.warning(f"Could not save buffer: {e}")
+    
+    def load_buffer(self):
+        """Load buffer from file"""
+        try:
+            if os.path.exists(self.buffer_file):
+                with open(self.buffer_file, 'r') as f:
+                    data = json.load(f)
+                    self.data_buffer.extend(data)
+                logger.info(f"Loaded {len(self.data_buffer)} data points from buffer")
+        except Exception as e:
+            logger.warning(f"Could not load buffer: {e}")
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    trainer = AQIForecastTrainer()
-    trainer.prepare_data()
+# Usage example
+def production_example():
+    """Example of how to use in production"""
+    predictor = ProductionAQIPredictor()
     
-    if not trainer.datasets:
-        logger.error("No valid datasets available for training")
-    else:
-        results = trainer.train_models()
-        trainer.save_models()
+    # Simulate receiving data over time
+    import time
+    for i in range(5):
+        # Simulate new sensor reading every hour
+        current_reading = {
+            'aqi': 3.0 + np.random.random(),
+            'pm2_5': 25 + np.random.random() * 10,
+            'pm10': 40 + np.random.random() * 15,
+            'co': 0.8 + np.random.random() * 0.4,
+            'so2': 5 + np.random.random() * 2,
+            'no2': 20 + np.random.random() * 5,
+            'o3': 80 + np.random.random() * 20,
+            'temperature': 28 + np.random.random() * 4,
+            'humidity': 65 + np.random.random() * 10,
+        }
         
-        print("\n" + "="*60)
-        print("TRAINING SUMMARY")
-        print("="*60)
-        for horizon, res in results.items():
-            print(f"\n{horizon.upper()}:")
-            if 'error' in res:
-                print(f"  ❌ Error: {res['error']}")
-            else:
-                print(f"  ✅ Model: {type(res['best_model']).__name__}")
-                print(f"  📊 Test MAE: {res['test_mae']:.3f}")
-                print("  🎯 Top Features:")
-                if not res['feature_importance'].empty and len(res['feature_importance']) > 1:
-                    for i, (_, row) in enumerate(res['feature_importance'].head(3).iterrows()):
-                        print(f"     {i+1}. {row['Feature']}: {row['Importance']:.4f}")
-                else:
-                    print("     No feature importance available")
-        print("\n" + "="*60)
+        predictions = predictor.predict_with_buffer(current_reading)
+        print(f"\nHour {i+1} - Predictions made with {len(predictor.data_buffer)} data points in buffer")
+        
+        time.sleep(1)  # Simulate time passing
