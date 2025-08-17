@@ -15,17 +15,32 @@ class AQIForecastTrainer:
         self.target_cols = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h']
         
     def _validate_data(self, df: pd.DataFrame) -> bool:
-        """Validate data quality before training"""
-        if len(df) < 100:
-            logger.error("Insufficient data points (<100)")
-            return False
-        if df['target'].nunique() < 5:
-            logger.error("Target has insufficient variability")
-            return False
-        if df.isnull().sum().sum() > 0:
-            logger.error("Data contains null values")
-            return False
-        return True
+    """Validate data quality before training"""
+    if len(df) < 100:
+        logger.error("Insufficient data points (<100)")
+        return False
+    
+    # Fixed: AQI data typically has limited discrete values (e.g., 1-6 scale)
+    # Changed from 5 to 2 minimum unique values
+    if df['target'].nunique() < 2:
+        logger.error("Target has insufficient variability (less than 2 unique values)")
+        return False
+    
+    if df.isnull().sum().sum() > 0:
+        logger.error("Data contains null values")
+        return False
+    
+    # Additional check: ensure target has reasonable distribution
+    target_counts = df['target'].value_counts()
+    min_class_size = len(df) * 0.05  # At least 5% per class
+    if (target_counts < min_class_size).any():
+        logger.warning(f"Some target classes have very few samples: {target_counts.to_dict()}")
+        # Don't fail, just warn - small classes are common in AQI data
+    
+    logger.info(f"Data validation passed: {len(df)} samples, {df['target'].nunique()} unique targets")
+    logger.info(f"Target distribution: {target_counts.to_dict()}")
+    
+    return True
         
     def prepare_data(self):
         """Get and validate processed features and targets"""
@@ -138,3 +153,4 @@ if __name__ == "__main__":
                 print(f"  Test MAE: {res['test_mae']:.2f}")
                 print("  Top Features:")
                 print(res['feature_importance'].head(3).to_string())
+
