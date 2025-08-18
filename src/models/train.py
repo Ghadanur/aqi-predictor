@@ -1,4 +1,4 @@
-def demo_realtime_prediction(trainer=None):# src/models/train.py (if placing in models folder)
+#src/models/train.py (if placing in models folder)
 import pandas as pd
 import numpy as np
 from pycaret.regression import *
@@ -766,3 +766,4 @@ if __name__ == "__main__":
         print("  1. For basic predictions: RealTimeAQIPredictor(trainer_instance=trainer)")
         print("  2. For enhanced predictions: ProductionAQIPredictor()")
         print("  3. Check the demos above for example usage")
+
