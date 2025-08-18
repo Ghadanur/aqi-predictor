@@ -1,8 +1,8 @@
-def demo_realtime_prediction(trainer=None):# src/train.py
+def demo_realtime_prediction(trainer=None):# src/models/train.py (if placing in models folder)
 import pandas as pd
 import numpy as np
 from pycaret.regression import *
-from features.process import AQI3DayForecastProcessor
+from ..features.process import AQI3DayForecastProcessor  # Updated relative import
 import joblib
 import os
 from datetime import datetime, timedelta
