@@ -449,8 +449,9 @@ class RealTimeAQIPredictor:
 class ProductionAQIPredictor(RealTimeAQIPredictor):
     """Enhanced version that maintains recent data buffer for better predictions"""
     
-    def __init__(self, models_dir: str = "models", buffer_size: int = 168):  # 1 week of hourly data
-        super().__init__(models_dir)
+    def __init__(self, models_dir: str = "models", buffer_size: int = 168, trainer_instance=None):  # 1 week of hourly data
+        # Fix: Pass trainer_instance to parent constructor
+        super().__init__(models_dir, trainer_instance)
         self.buffer_size = buffer_size
         self.data_buffer = deque(maxlen=buffer_size)
         self.buffer_file = "recent_data_buffer.json"
@@ -477,7 +478,13 @@ class ProductionAQIPredictor(RealTimeAQIPredictor):
         for horizon in self.target_cols:
             if horizon in self.models:
                 try:
-                    pred_value = self.models[horizon].predict([features])[0]
+                    # Ensure features is a 2D array for prediction
+                    if features.ndim == 1:
+                        features_2d = features.reshape(1, -1)
+                    else:
+                        features_2d = features
+                    
+                    pred_value = self.models[horizon].predict(features_2d)[0]
                     predictions[horizon] = {
                         'value': float(pred_value),
                         'horizon': horizon.replace('aqi_', '').replace('current', '1h'),
@@ -542,36 +549,45 @@ class ProductionAQIPredictor(RealTimeAQIPredictor):
                 closest_idx = time_diffs.idxmin()
                 closest_row = df.loc[closest_idx]
                 
-                feature_dict[f'aqi_lag_{lag}h'] = float(closest_row.get('aqi', current_data.get('aqi', 0)))
-                feature_dict[f'pm2_5_lag_{lag}h'] = float(closest_row.get('pm2_5', current_data.get('pm2_5', 0)))
+                # Fix: Ensure values are not None before converting to float
+                aqi_lag = closest_row.get('aqi')
+                pm2_5_lag = closest_row.get('pm2_5')
+                pm10_lag = closest_row.get('pm10')
+                
+                feature_dict[f'aqi_lag_{lag}h'] = float(aqi_lag if aqi_lag is not None else current_data.get('aqi', 0))
+                feature_dict[f'pm2_5_lag_{lag}h'] = float(pm2_5_lag if pm2_5_lag is not None else current_data.get('pm2_5', 0))
                 
                 if lag in [24, 48, 72]:
-                    feature_dict[f'pm10_lag_{lag}h'] = float(closest_row.get('pm10', current_data.get('pm10', 0)))
+                    feature_dict[f'pm10_lag_{lag}h'] = float(pm10_lag if pm10_lag is not None else current_data.get('pm10', 0))
             else:
                 # Fallback to current values
-                feature_dict[f'aqi_lag_{lag}h'] = current_data.get('aqi', 0)
-                feature_dict[f'pm2_5_lag_{lag}h'] = current_data.get('pm2_5', 0)
+                feature_dict[f'aqi_lag_{lag}h'] = float(current_data.get('aqi', 0))
+                feature_dict[f'pm2_5_lag_{lag}h'] = float(current_data.get('pm2_5', 0))
                 if lag in [24, 48, 72]:
-                    feature_dict[f'pm10_lag_{lag}h'] = current_data.get('pm10', 0)
+                    feature_dict[f'pm10_lag_{lag}h'] = float(current_data.get('pm10', 0))
         
         # Calculate real changes and rolling stats where possible
         if len(df) >= 24:  # At least 24 hours of data
-            feature_dict['pm2_5_change_24h'] = current_data.get('pm2_5', 0) - df.iloc[-24]['pm2_5']
-            feature_dict['co_24h_avg'] = df['co'].tail(24).mean()
-            feature_dict['temp_24h_change'] = current_data.get('temperature', 0) - df.iloc[-24]['temperature']
-            feature_dict['humidity_24h_change'] = current_data.get('humidity', 0) - df.iloc[-24]['humidity']
+            pm2_5_24h_ago = df.iloc[-24].get('pm2_5')
+            temp_24h_ago = df.iloc[-24].get('temperature')
+            humidity_24h_ago = df.iloc[-24].get('humidity')
+            
+            feature_dict['pm2_5_change_24h'] = float(current_data.get('pm2_5', 0) - (pm2_5_24h_ago if pm2_5_24h_ago is not None else 0))
+            feature_dict['co_24h_avg'] = float(df['co'].tail(24).mean())
+            feature_dict['temp_24h_change'] = float(current_data.get('temperature', 0) - (temp_24h_ago if temp_24h_ago is not None else 0))
+            feature_dict['humidity_24h_change'] = float(current_data.get('humidity', 0) - (humidity_24h_ago if humidity_24h_ago is not None else 0))
         else:
             feature_dict['pm2_5_change_24h'] = 0.0
-            feature_dict['co_24h_avg'] = current_data.get('co', 0)
+            feature_dict['co_24h_avg'] = float(current_data.get('co', 0))
             feature_dict['temp_24h_change'] = 0.0
             feature_dict['humidity_24h_change'] = 0.0
         
         if len(df) >= 72:  # At least 72 hours of data
-            feature_dict['aqi_72h_avg'] = df['aqi'].tail(72).mean()
-            feature_dict['pm2_5_72h_max'] = df['pm2_5'].tail(72).max()
+            feature_dict['aqi_72h_avg'] = float(df['aqi'].tail(72).mean())
+            feature_dict['pm2_5_72h_max'] = float(df['pm2_5'].tail(72).max())
         else:
-            feature_dict['aqi_72h_avg'] = current_data.get('aqi', 0)
-            feature_dict['pm2_5_72h_max'] = current_data.get('pm2_5', 0)
+            feature_dict['aqi_72h_avg'] = float(current_data.get('aqi', 0))
+            feature_dict['pm2_5_72h_max'] = float(current_data.get('pm2_5', 0))
         
         # Create DataFrame and return in correct order
         df_features = pd.DataFrame([feature_dict])
@@ -584,7 +600,13 @@ class ProductionAQIPredictor(RealTimeAQIPredictor):
         return df_features[self.required_features].values
     
     def _enhanced_confidence(self, horizon: str, buffer_length: int) -> str:
-        """Enhanced confidence based on buffer size"""
+        """Enhanced confidence based on buffer size - FIXED"""
+        # Fix: Ensure buffer_length is not None and handle edge cases
+        if buffer_length is None:
+            buffer_length = 0
+        
+        buffer_length = int(buffer_length)  # Ensure it's an integer
+        
         if buffer_length >= 72:  # 3+ days of data
             confidence_map = {
                 'aqi_current': 'Very High',
@@ -684,43 +706,99 @@ def demo_realtime_prediction(trainer=None):
 
 
 def production_example():
-    """Example of using ProductionAQIPredictor with data buffer"""
+    """Example of using ProductionAQIPredictor with data buffer - FIXED"""
     print("\n🏭 Production Predictor Example...")
     
     try:
-        predictor = ProductionAQIPredictor()
+        # Fix: Pass trainer_instance=None explicitly to avoid issues
+        predictor = ProductionAQIPredictor(trainer_instance=None)
         
         # Simulate receiving data over time
         for i in range(3):
-            # Simulate new sensor reading
+            # Simulate new sensor reading - ensure all values are not None
             current_reading = {
-                'aqi': 3.0 + np.random.random(),
-                'pm2_5': 25 + np.random.random() * 10,
-                'pm10': 40 + np.random.random() * 15,
-                'co': 0.8 + np.random.random() * 0.4,
-                'so2': 5 + np.random.random() * 2,
-                'no2': 20 + np.random.random() * 5,
-                'o3': 80 + np.random.random() * 20,
-                'temperature': 28 + np.random.random() * 4,
-                'humidity': 65 + np.random.random() * 10,
-                'wind_speed': 5 + np.random.random() * 3,
-                'pressure': 1010 + np.random.random() * 10,
-                'uv_index': 5 + np.random.random() * 5,
+                'aqi': float(3.0 + np.random.random()),
+                'pm2_5': float(25 + np.random.random() * 10),
+                'pm10': float(40 + np.random.random() * 15),
+                'co': float(0.8 + np.random.random() * 0.4),
+                'so2': float(5 + np.random.random() * 2),
+                'no2': float(20 + np.random.random() * 5),
+                'o3': float(80 + np.random.random() * 20),
+                'temperature': float(28 + np.random.random() * 4),
+                'humidity': float(65 + np.random.random() * 10),
+                'wind_speed': float(5 + np.random.random() * 3),
+                'pressure': float(1010 + np.random.random() * 10),
+                'uv_index': float(5 + np.random.random() * 5),
             }
             
             predictions = predictor.predict_with_buffer(current_reading)
             print(f"\nReading {i+1} - Buffer size: {len(predictor.data_buffer)}")
             
             # Show just the 24h prediction as example
-            if 'aqi_24h' in predictions and 'value' in predictions['aqi_24h']:
+            if 'aqi_24h' in predictions and predictions['aqi_24h'].get('value') is not None:
                 pred = predictions['aqi_24h']
                 aqi_val = pred['value']
                 category, emoji, _ = predictor.get_aqi_category(aqi_val)
                 print(f"  {emoji} 24H Forecast: {aqi_val:.2f} ({category}) - Confidence: {pred['confidence']}")
+            else:
+                print(f"  ❌ 24H Forecast failed: {predictions.get('aqi_24h', {}).get('error', 'Unknown error')}")
             
     except Exception as e:
         print(f"❌ Production example failed: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
         print(f"💡 Make sure models are trained first!")
+
+
+def quick_test_without_training():
+    """Quick test function that doesn't require trained models"""
+    print("\n🧪 Quick Test (No Models Required)...")
+    
+    # Test feature creation without models
+    try:
+        # Create a dummy predictor to test feature creation
+        class DummyPredictor(RealTimeAQIPredictor):
+            def __init__(self):
+                self.required_features = self._get_inferred_features()
+            
+            def load_models(self):
+                pass  # Skip model loading
+        
+        predictor = DummyPredictor()
+        
+        current_data = {
+            'aqi': 3.2,
+            'pm2_5': 28.5,
+            'pm10': 45.2,
+            'co': 0.9,
+            'so2': 4.8,
+            'no2': 22.1,
+            'o3': 85.3,
+            'temperature': 29.8,
+            'humidity': 68.5,
+            'wind_speed': 6.2,
+            'pressure': 1012.5,
+            'uv_index': 7.1,
+        }
+        
+        features = predictor._create_realtime_features(current_data)
+        print(f"✅ Feature creation successful!")
+        print(f"   Features shape: {features.shape}")
+        print(f"   Required features: {len(predictor.required_features)}")
+        print(f"   Sample features: {features[0][:5]}")  # Show first 5 values
+        
+        # Test confidence estimation
+        confidence = predictor._estimate_confidence('aqi_24h', current_data)
+        print(f"   Confidence estimation: {confidence}")
+        
+        # Test AQI categorization
+        category, emoji, desc = predictor.get_aqi_category(3.2)
+        print(f"   AQI Category: {emoji} {category}")
+        
+    except Exception as e:
+        print(f"❌ Quick test failed: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
 
 
 if __name__ == "__main__":
@@ -733,6 +811,8 @@ if __name__ == "__main__":
     
     if not trainer.datasets:
         logger.error("No valid datasets available for training")
+        # Run quick test instead
+        quick_test_without_training()
     else:
         results = trainer.train_models()
         trainer.save_models()
@@ -764,5 +844,5 @@ if __name__ == "__main__":
         print("\n🎉 Training and prediction system ready!")
         print("💡 Usage:")
         print("  1. For basic predictions: RealTimeAQIPredictor(trainer_instance=trainer)")
-        print("  2. For enhanced predictions: ProductionAQIPredictor()")
+        print("  2. For enhanced predictions: ProductionAQIPredictor(trainer_instance=trainer)")
         print("  3. Check the demos above for example usage")
