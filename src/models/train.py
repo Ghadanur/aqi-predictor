@@ -1,4 +1,4 @@
-def demo_realtime_prediction(trainer=None# src/train.py
+def demo_realtime_prediction(trainer=None):# src/train.py
 import pandas as pd
 import numpy as np
 from pycaret.regression import *
@@ -629,15 +629,15 @@ class ProductionAQIPredictor(RealTimeAQIPredictor):
             logger.warning(f"Could not load buffer: {e}")
 
 
-def demo_realtime_prediction():
+def demo_realtime_prediction(trainer=None):
     """Demo function to show real-time prediction after training"""
     print("\n🔄 Testing Real-time Prediction...")
     
     try:
-        # Initialize real-time predictor
-        predictor = RealTimeAQIPredictor()
+        # Initialize real-time predictor with trainer instance for feature alignment
+        predictor = RealTimeAQIPredictor(trainer_instance=trainer)
         
-        # Example current sensor readings
+        # Example current sensor readings - now including all expected features
         current_readings = {
             'aqi': 3.2,
             'pm2_5': 28.5,
@@ -648,6 +648,9 @@ def demo_realtime_prediction():
             'o3': 85.3,
             'temperature': 29.8,
             'humidity': 68.5,
+            'wind_speed': 6.2,        # Added missing features
+            'pressure': 1012.5,       # Added missing features
+            'uv_index': 7.1,          # Added missing features
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         
@@ -677,6 +680,47 @@ def demo_realtime_prediction():
                 
     except Exception as e:
         print(f"❌ Real-time prediction demo failed: {str(e)}")
+        print(f"💡 Make sure models are trained first!")
+
+
+def production_example():
+    """Example of using ProductionAQIPredictor with data buffer"""
+    print("\n🏭 Production Predictor Example...")
+    
+    try:
+        predictor = ProductionAQIPredictor()
+        
+        # Simulate receiving data over time
+        for i in range(3):
+            # Simulate new sensor reading
+            current_reading = {
+                'aqi': 3.0 + np.random.random(),
+                'pm2_5': 25 + np.random.random() * 10,
+                'pm10': 40 + np.random.random() * 15,
+                'co': 0.8 + np.random.random() * 0.4,
+                'so2': 5 + np.random.random() * 2,
+                'no2': 20 + np.random.random() * 5,
+                'o3': 80 + np.random.random() * 20,
+                'temperature': 28 + np.random.random() * 4,
+                'humidity': 65 + np.random.random() * 10,
+                'wind_speed': 5 + np.random.random() * 3,
+                'pressure': 1010 + np.random.random() * 10,
+                'uv_index': 5 + np.random.random() * 5,
+            }
+            
+            predictions = predictor.predict_with_buffer(current_reading)
+            print(f"\nReading {i+1} - Buffer size: {len(predictor.data_buffer)}")
+            
+            # Show just the 24h prediction as example
+            if 'aqi_24h' in predictions and 'value' in predictions['aqi_24h']:
+                pred = predictions['aqi_24h']
+                aqi_val = pred['value']
+                category, emoji, _ = predictor.get_aqi_category(aqi_val)
+                print(f"  {emoji} 24H Forecast: {aqi_val:.2f} ({category}) - Confidence: {pred['confidence']}")
+            
+    except Exception as e:
+        print(f"❌ Production example failed: {str(e)}")
+        print(f"💡 Make sure models are trained first!")
 
 
 if __name__ == "__main__":
@@ -711,11 +755,14 @@ if __name__ == "__main__":
                     print("     No feature importance available")
         print("\n" + "="*60)
         
-        # Real-time prediction demo
-        demo_realtime_prediction()
+        # Real-time prediction demo - pass trainer instance
+        demo_realtime_prediction(trainer)
+        
+        # Production example
+        production_example()
         
         print("\n🎉 Training and prediction system ready!")
         print("💡 Usage:")
-        print("  1. For basic predictions: RealTimeAQIPredictor()")
+        print("  1. For basic predictions: RealTimeAQIPredictor(trainer_instance=trainer)")
         print("  2. For enhanced predictions: ProductionAQIPredictor()")
-        print("  3. Check the demo above for example usage")
+        print("  3. Check the demos above for example usage")
