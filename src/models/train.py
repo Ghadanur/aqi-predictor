@@ -1,4 +1,4 @@
-#src/models/train.py (if placing in models folder)
+# src/models/train.py (if placing in models folder)
 import pandas as pd
 import numpy as np
 from pycaret.regression import *
@@ -351,8 +351,8 @@ class RealTimeAQIPredictor:
         # Time-based features
         feature_dict['hour_sin'] = np.sin(2 * np.pi * dt.hour / 24)
         feature_dict['hour_cos'] = np.cos(2 * np.pi * dt.hour / 24)
-        feature_dict['day_sin'] = np.sin(2 * np.pi * dt.dayofyear / 365)
-        feature_dict['day_cos'] = np.cos(2 * np.pi * dt.dayofyear / 365)
+        feature_dict['day_sin'] = np.sin(2 * np.pi * dt.timetuple().tm_yday / 365)  # Fixed dayofyear
+        feature_dict['day_cos'] = np.cos(2 * np.pi * dt.timetuple().tm_yday / 365)  # Fixed dayofyear
         
         # PM interaction features
         pm2_5 = current_data.get('pm2_5', 0)
@@ -523,8 +523,8 @@ class ProductionAQIPredictor(RealTimeAQIPredictor):
         # Time features
         feature_dict['hour_sin'] = np.sin(2 * np.pi * dt.hour / 24)
         feature_dict['hour_cos'] = np.cos(2 * np.pi * dt.hour / 24)
-        feature_dict['day_sin'] = np.sin(2 * np.pi * dt.dayofyear / 365)
-        feature_dict['day_cos'] = np.cos(2 * np.pi * dt.dayofyear / 365)
+        feature_dict['day_sin'] = np.sin(2 * np.pi * dt.timetuple().tm_yday / 365)  # Fixed dayofyear
+        feature_dict['day_cos'] = np.cos(2 * np.pi * dt.timetuple().tm_yday / 365)  # Fixed dayofyear
         
         # PM interaction features
         pm2_5 = current_data.get('pm2_5', 0)
@@ -766,4 +766,3 @@ if __name__ == "__main__":
         print("  1. For basic predictions: RealTimeAQIPredictor(trainer_instance=trainer)")
         print("  2. For enhanced predictions: ProductionAQIPredictor()")
         print("  3. Check the demos above for example usage")
-
