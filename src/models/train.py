@@ -1,4 +1,4 @@
-# src/train.py
+def demo_realtime_prediction(trainer=None# src/train.py
 import pandas as pd
 import numpy as np
 from pycaret.regression import *
@@ -209,14 +209,15 @@ class AQIForecastTrainer:
 class RealTimeAQIPredictor:
     """Real-time AQI Predictor integrated with the training system"""
     
-    def __init__(self, models_dir: str = "models"):
+    def __init__(self, models_dir: str = "models", trainer_instance=None):
         self.models_dir = models_dir
         self.models = {}
         self.target_cols = ['aqi_current', 'aqi_24h', 'aqi_48h', 'aqi_72h']
+        self.trainer = trainer_instance
         
         # Load models and get expected features
         self.load_models()
-        self.required_features = self._get_required_features()
+        self.required_features = self._get_training_features()
         
     def load_models(self):
         """Load all trained models"""
@@ -232,34 +233,34 @@ class RealTimeAQIPredictor:
         if not self.models:
             raise Exception("No models loaded successfully!")
     
-    def _get_required_features(self) -> List[str]:
-        """Get the list of features expected by the models"""
-        base_features = [
-            'aqi', 'pm2_5', 'pm10', 'co', 'so2', 'no2', 'o3', 'temperature', 'humidity'
+    def _get_training_features(self) -> List[str]:
+        """Get the exact features used during training"""
+        if self.trainer and hasattr(self.trainer, 'datasets') and self.trainer.datasets:
+            # Get feature names from the actual training datasets
+            first_dataset = list(self.trainer.datasets.values())[0]
+            feature_cols = [col for col in first_dataset.columns if col != 'target']
+            logger.info(f"Using {len(feature_cols)} features from training data")
+            return feature_cols
+        else:
+            # Fallback: try to infer from a saved model or use hardcoded list
+            logger.warning("No trainer instance available, using inferred features")
+            return self._get_inferred_features()
+    
+    def _get_inferred_features(self) -> List[str]:
+        """Infer features from the error message or use comprehensive list"""
+        # Based on the error message, these are the actual features the model expects:
+        expected_features = [
+            'aqi', 'pm2_5', 'pm10', 'co', 'no2', 'o3', 'so2', 'temperature',
+            'humidity', 'wind_speed', 'pressure', 'uv_index', 'hour_sin',
+            'hour_cos', 'day_sin', 'day_cos', 'pm_ratio', 'pm_interaction',
+            'pm2_5_change_24h', 'aqi_lag_1h', 'pm2_5_lag_1h', 'aqi_lag_6h',
+            'pm2_5_lag_6h', 'aqi_lag_12h', 'pm2_5_lag_12h', 'aqi_lag_24h',
+            'pm2_5_lag_24h', 'pm10_lag_24h', 'aqi_lag_48h', 'pm2_5_lag_48h',
+            'pm10_lag_48h', 'aqi_lag_72h', 'pm2_5_lag_72h', 'pm10_lag_72h',
+            'co_24h_avg', 'aqi_72h_avg', 'pm2_5_72h_max', 'temp_24h_change',
+            'humidity_24h_change'
         ]
-        
-        # Time-based features
-        time_features = ['hour_sin', 'hour_cos', 'day_sin', 'day_cos']
-        
-        # PM interaction features
-        pm_features = ['pm_ratio', 'pm_interaction']
-        
-        # Lag features that we'll approximate
-        lag_features = []
-        for lag in [1, 6, 12, 24, 48, 72]:
-            lag_features.extend([
-                f'aqi_lag_{lag}h', f'pm2_5_lag_{lag}h'
-            ])
-            if lag % 24 == 0:
-                lag_features.append(f'pm10_lag_{lag}h')
-        
-        # Rolling and change features that we'll approximate
-        derived_features = [
-            'pm2_5_change_24h', 'co_24h_avg', 'aqi_72h_avg', 
-            'pm2_5_72h_max', 'temp_24h_change', 'humidity_24h_change'
-        ]
-        
-        return base_features + time_features + pm_features + lag_features + derived_features
+        return expected_features
     
     def predict_from_current_data(self, current_data: Dict[str, float]) -> Dict[str, Dict]:
         """
@@ -277,6 +278,9 @@ class RealTimeAQIPredictor:
                 'o3': 80.0,
                 'temperature': 28.5,
                 'humidity': 65.0,
+                'wind_speed': 5.0,      # optional
+                'pressure': 1013.25,    # optional  
+                'uv_index': 5.0,        # optional
                 'timestamp': '2025-08-18 10:30:00'  # optional
             }
         """
@@ -289,7 +293,10 @@ class RealTimeAQIPredictor:
             for horizon in self.target_cols:
                 if horizon in self.models:
                     try:
-                        pred_value = self.models[horizon].predict([features])[0]
+                        # Create proper DataFrame for prediction
+                        feature_df = pd.DataFrame([features[0]], columns=self.required_features)
+                        pred_value = self.models[horizon].predict(feature_df)[0]
+                        
                         predictions[horizon] = {
                             'value': float(pred_value),
                             'horizon': horizon.replace('aqi_', '').replace('current', '1h'),
@@ -309,60 +316,84 @@ class RealTimeAQIPredictor:
             logger.error(f"Real-time prediction failed: {str(e)}")
             raise
     
-    def _create_realtime_features(self, current_data: Dict[str, float]) -> List[float]:
-        """Create feature vector from current data only"""
-        features = []
-        
+    def _create_realtime_features(self, current_data: Dict[str, float]) -> np.ndarray:
+        """Create feature vector matching exact training features"""
         # Parse timestamp for time-based features
         if 'timestamp' in current_data:
             dt = pd.to_datetime(current_data['timestamp'])
         else:
             dt = datetime.now()
         
-        # Base pollutant and weather features
-        base_features = ['aqi', 'pm2_5', 'pm10', 'co', 'so2', 'no2', 'o3', 'temperature', 'humidity']
-        for feature in base_features:
-            features.append(float(current_data.get(feature, 0)))
+        # Create a DataFrame to match training format exactly
+        feature_dict = {}
+        
+        # Base pollutant and weather features (direct mapping)
+        base_mapping = {
+            'aqi': 'aqi',
+            'pm2_5': 'pm2_5', 
+            'pm10': 'pm10',
+            'co': 'co',
+            'no2': 'no2',
+            'o3': 'o3',
+            'so2': 'so2',
+            'temperature': 'temperature',
+            'humidity': 'humidity'
+        }
+        
+        for feature, data_key in base_mapping.items():
+            feature_dict[feature] = current_data.get(data_key, 0.0)
+        
+        # Missing weather features - use defaults or approximations
+        feature_dict['wind_speed'] = current_data.get('wind_speed', 5.0)  # Default wind speed
+        feature_dict['pressure'] = current_data.get('pressure', 1013.25)  # Standard pressure
+        feature_dict['uv_index'] = current_data.get('uv_index', 5.0)  # Moderate UV
         
         # Time-based features
-        features.append(np.sin(2 * np.pi * dt.hour / 24))  # hour_sin
-        features.append(np.cos(2 * np.pi * dt.hour / 24))  # hour_cos  
-        features.append(np.sin(2 * np.pi * dt.dayofyear / 365))  # day_sin
-        features.append(np.cos(2 * np.pi * dt.dayofyear / 365))  # day_cos
+        feature_dict['hour_sin'] = np.sin(2 * np.pi * dt.hour / 24)
+        feature_dict['hour_cos'] = np.cos(2 * np.pi * dt.hour / 24)
+        feature_dict['day_sin'] = np.sin(2 * np.pi * dt.dayofyear / 365)
+        feature_dict['day_cos'] = np.cos(2 * np.pi * dt.dayofyear / 365)
         
         # PM interaction features
         pm2_5 = current_data.get('pm2_5', 0)
         pm10 = current_data.get('pm10', 0)
-        features.append(pm2_5 / max(pm10, 0.1))  # pm_ratio (avoid division by zero)
-        features.append(pm2_5 * pm10)  # pm_interaction
+        feature_dict['pm_ratio'] = pm2_5 / max(pm10, 0.1)
+        feature_dict['pm_interaction'] = pm2_5 * pm10
         
-        # Approximate lag features (use current values as proxies)
+        # Change feature (unknown without history)
+        feature_dict['pm2_5_change_24h'] = 0.0
+        
+        # Lag features (approximate with current values + small variation)
         current_aqi = current_data.get('aqi', 0)
         current_pm2_5 = current_data.get('pm2_5', 0)
         current_pm10 = current_data.get('pm10', 0)
         
-        # Add some noise/variation to simulate lag differences
         for lag in [1, 6, 12, 24, 48, 72]:
-            # Simple approximation: recent values with small random variation
-            variation_factor = 1 + (np.random.random() - 0.5) * 0.1  # ±5% variation
-            features.append(current_aqi * variation_factor)  # aqi_lag
-            features.append(current_pm2_5 * variation_factor)  # pm2_5_lag
-            if lag % 24 == 0:
-                features.append(current_pm10 * variation_factor)  # pm10_lag
+            # Add small variation to simulate different time periods
+            variation = 1 + (np.random.random() - 0.5) * 0.1
+            feature_dict[f'aqi_lag_{lag}h'] = current_aqi * variation
+            feature_dict[f'pm2_5_lag_{lag}h'] = current_pm2_5 * variation
+            
+            if lag in [24, 48, 72]:
+                feature_dict[f'pm10_lag_{lag}h'] = current_pm10 * variation
         
-        # Approximate derived features
-        features.append(0.0)  # pm2_5_change_24h (unknown without history)
-        features.append(current_data.get('co', 0))  # co_24h_avg (use current as proxy)
-        features.append(current_aqi)  # aqi_72h_avg (use current as proxy)
-        features.append(current_pm2_5)  # pm2_5_72h_max (use current as proxy)
-        features.append(0.0)  # temp_24h_change (unknown without history)
-        features.append(0.0)  # humidity_24h_change (unknown without history)
+        # Rolling statistics (approximate with current values)
+        feature_dict['co_24h_avg'] = current_data.get('co', 0)
+        feature_dict['aqi_72h_avg'] = current_aqi
+        feature_dict['pm2_5_72h_max'] = current_pm2_5
+        feature_dict['temp_24h_change'] = 0.0
+        feature_dict['humidity_24h_change'] = 0.0
         
-        # Pad or truncate to expected length
-        while len(features) < 39:
-            features.append(0.0)
+        # Create DataFrame with exact feature order
+        df = pd.DataFrame([feature_dict])
         
-        return features[:39]
+        # Ensure we have all required features in correct order
+        for feature in self.required_features:
+            if feature not in df.columns:
+                df[feature] = 0.0
+        
+        # Return in exact training order
+        return df[self.required_features].values
     
     def _estimate_confidence(self, horizon: str, current_data: Dict) -> str:
         """Estimate prediction confidence based on available data quality"""
@@ -462,7 +493,7 @@ class ProductionAQIPredictor(RealTimeAQIPredictor):
         
         return predictions
     
-    def _create_enhanced_features(self, current_data: Dict[str, float]) -> List[float]:
+    def _create_enhanced_features(self, current_data: Dict[str, float]) -> np.ndarray:
         """Create features using actual recent data when available"""
         if len(self.data_buffer) < 2:
             # Fallback to approximation if no buffer
@@ -473,27 +504,33 @@ class ProductionAQIPredictor(RealTimeAQIPredictor):
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = df.sort_values('timestamp')
         
-        features = []
-        
         # Current timestamp
         dt = pd.to_datetime(current_data.get('timestamp', datetime.now()))
         
+        # Create feature dictionary
+        feature_dict = {}
+        
         # Base features
-        base_features = ['aqi', 'pm2_5', 'pm10', 'co', 'so2', 'no2', 'o3', 'temperature', 'humidity']
+        base_features = ['aqi', 'pm2_5', 'pm10', 'co', 'no2', 'o3', 'so2', 'temperature', 'humidity']
         for feature in base_features:
-            features.append(float(current_data.get(feature, 0)))
+            feature_dict[feature] = float(current_data.get(feature, 0))
+        
+        # Weather features with defaults
+        feature_dict['wind_speed'] = current_data.get('wind_speed', 5.0)
+        feature_dict['pressure'] = current_data.get('pressure', 1013.25)
+        feature_dict['uv_index'] = current_data.get('uv_index', 5.0)
         
         # Time features
-        features.append(np.sin(2 * np.pi * dt.hour / 24))
-        features.append(np.cos(2 * np.pi * dt.hour / 24))
-        features.append(np.sin(2 * np.pi * dt.dayofyear / 365))
-        features.append(np.cos(2 * np.pi * dt.dayofyear / 365))
+        feature_dict['hour_sin'] = np.sin(2 * np.pi * dt.hour / 24)
+        feature_dict['hour_cos'] = np.cos(2 * np.pi * dt.hour / 24)
+        feature_dict['day_sin'] = np.sin(2 * np.pi * dt.dayofyear / 365)
+        feature_dict['day_cos'] = np.cos(2 * np.pi * dt.dayofyear / 365)
         
         # PM interaction features
         pm2_5 = current_data.get('pm2_5', 0)
         pm10 = current_data.get('pm10', 0)
-        features.append(pm2_5 / max(pm10, 0.1))
-        features.append(pm2_5 * pm10)
+        feature_dict['pm_ratio'] = pm2_5 / max(pm10, 0.1)
+        feature_dict['pm_interaction'] = pm2_5 * pm10
         
         # Real lag features using buffer data
         for lag in [1, 6, 12, 24, 48, 72]:
@@ -505,46 +542,46 @@ class ProductionAQIPredictor(RealTimeAQIPredictor):
                 closest_idx = time_diffs.idxmin()
                 closest_row = df.loc[closest_idx]
                 
-                features.append(float(closest_row.get('aqi', current_data.get('aqi', 0))))
-                features.append(float(closest_row.get('pm2_5', current_data.get('pm2_5', 0))))
+                feature_dict[f'aqi_lag_{lag}h'] = float(closest_row.get('aqi', current_data.get('aqi', 0)))
+                feature_dict[f'pm2_5_lag_{lag}h'] = float(closest_row.get('pm2_5', current_data.get('pm2_5', 0)))
                 
-                if lag % 24 == 0:
-                    features.append(float(closest_row.get('pm10', current_data.get('pm10', 0))))
+                if lag in [24, 48, 72]:
+                    feature_dict[f'pm10_lag_{lag}h'] = float(closest_row.get('pm10', current_data.get('pm10', 0)))
             else:
                 # Fallback to current values
-                features.append(current_data.get('aqi', 0))
-                features.append(current_data.get('pm2_5', 0))
-                if lag % 24 == 0:
-                    features.append(current_data.get('pm10', 0))
+                feature_dict[f'aqi_lag_{lag}h'] = current_data.get('aqi', 0)
+                feature_dict[f'pm2_5_lag_{lag}h'] = current_data.get('pm2_5', 0)
+                if lag in [24, 48, 72]:
+                    feature_dict[f'pm10_lag_{lag}h'] = current_data.get('pm10', 0)
         
         # Calculate real changes and rolling stats where possible
         if len(df) >= 24:  # At least 24 hours of data
-            features.append(current_data.get('pm2_5', 0) - df.iloc[-24]['pm2_5'])  # 24h change
-            features.append(df['co'].tail(24).mean())  # 24h CO average
+            feature_dict['pm2_5_change_24h'] = current_data.get('pm2_5', 0) - df.iloc[-24]['pm2_5']
+            feature_dict['co_24h_avg'] = df['co'].tail(24).mean()
+            feature_dict['temp_24h_change'] = current_data.get('temperature', 0) - df.iloc[-24]['temperature']
+            feature_dict['humidity_24h_change'] = current_data.get('humidity', 0) - df.iloc[-24]['humidity']
         else:
-            features.append(0.0)  # pm2_5_change_24h
-            features.append(current_data.get('co', 0))  # co_24h_avg
+            feature_dict['pm2_5_change_24h'] = 0.0
+            feature_dict['co_24h_avg'] = current_data.get('co', 0)
+            feature_dict['temp_24h_change'] = 0.0
+            feature_dict['humidity_24h_change'] = 0.0
         
         if len(df) >= 72:  # At least 72 hours of data
-            features.append(df['aqi'].tail(72).mean())  # 72h AQI average
-            features.append(df['pm2_5'].tail(72).max())  # 72h PM2.5 max
+            feature_dict['aqi_72h_avg'] = df['aqi'].tail(72).mean()
+            feature_dict['pm2_5_72h_max'] = df['pm2_5'].tail(72).max()
         else:
-            features.append(current_data.get('aqi', 0))  # aqi_72h_avg
-            features.append(current_data.get('pm2_5', 0))  # pm2_5_72h_max
+            feature_dict['aqi_72h_avg'] = current_data.get('aqi', 0)
+            feature_dict['pm2_5_72h_max'] = current_data.get('pm2_5', 0)
         
-        # Temperature and humidity changes
-        if len(df) >= 24:
-            features.append(current_data.get('temperature', 0) - df.iloc[-24]['temperature'])
-            features.append(current_data.get('humidity', 0) - df.iloc[-24]['humidity'])
-        else:
-            features.append(0.0)
-            features.append(0.0)
+        # Create DataFrame and return in correct order
+        df_features = pd.DataFrame([feature_dict])
         
-        # Ensure correct length
-        while len(features) < 39:
-            features.append(0.0)
-        
-        return features[:39]
+        # Ensure all required features exist
+        for feature in self.required_features:
+            if feature not in df_features.columns:
+                df_features[feature] = 0.0
+                
+        return df_features[self.required_features].values
     
     def _enhanced_confidence(self, horizon: str, buffer_length: int) -> str:
         """Enhanced confidence based on buffer size"""
