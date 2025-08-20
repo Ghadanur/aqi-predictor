@@ -1,7 +1,7 @@
 name: AQI Training Pipeline (PKT)
 on:
   schedule:
-    - cron: "0 19 * * *"  # 00:00 PKT (7 PM UTC)
+    - cron: "0 19 * * *"  # 00:00 PKT (7 PM UTC) - Fixed syntax
   workflow_dispatch:
 
 jobs:
@@ -11,7 +11,7 @@ jobs:
     env:
       TZ: Asia/Karachi
       PYTHONPATH: ${{ github.workspace }}/src
-
+    
     steps:
       - uses: actions/checkout@v4
       
@@ -19,7 +19,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-
+          
       - name: Install dependencies
         run: |
           pip install --upgrade pip
@@ -28,27 +28,68 @@ jobs:
           
       - name: Create model directory
         run: mkdir -p src/models
-
+        
       - name: Process data
         run: |
           python -m src.features.process
           echo "Data processed at $(date +'%Y-%m-%d %H:%M:%S %Z')" > timing.log
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-
+          
       - name: Train models
         run: |
           python -m src.models.train
           echo "Training completed at $(date +'%Y-%m-%d %H:%M:%S %Z')" >> timing.log
         env:
-          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}  
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+          
+      - name: Create model metadata
+        run: |
+          echo "{
+            \"training_date\": \"$(date -Iseconds)\",
+            \"timezone\": \"$TZ\",
+            \"python_version\": \"$(python --version)\",
+            \"workflow_run\": \"$GITHUB_RUN_NUMBER\",
+            \"commit_sha\": \"$GITHUB_SHA\"
+          }" > src/models/metadata.json
           
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: training-artifacts
+          name: training-artifacts-${{ github.run_number }}
           path: |
             src/models/*.pkl
+            src/models/metadata.json
             timing.log
+            
+      # NEW: Create GitHub Release with models
+      - name: Create Release
+        if: success()
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: models-${{ github.run_number }}-${{ github.run_attempt }}
+          name: AQI Models - $(date +'%Y-%m-%d %H:%M PKT')
+          body: |
+            🤖 **Automated Model Training Release**
+            
+            **Training Details:**
+            - Date: $(date +'%Y-%m-%d %H:%M:%S %Z')
+            - Workflow Run: #${{ github.run_number }}
+            - Commit: ${{ github.sha }}
+            
+            **Files Included:**
+            - Trained model files (*.pkl)
+            - Training metadata
+            - Timing logs
+            
+            **Usage:**
+            Download the model files and use them in your Streamlit application.
+          files: |
+            src/models/*.pkl
+            src/models/metadata.json
+            timing.log
+          prerelease: false
+          generate_release_notes: true
         env:
-          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TZ: Asia/Karachi
