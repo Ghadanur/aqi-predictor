@@ -58,7 +58,7 @@ jobs:
         with:
           name: training-artifacts-${{ github.run_number }}
           path: |
-            src/models/*.pkl
+            models/*.pkl
             src/models/metadata.json
             timing.log
             
